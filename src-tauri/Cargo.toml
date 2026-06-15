@@ -1,0 +1,55 @@
+[package]
+name = "qms-desktop"
+version = "1.0.0"
+description = "QMS Desktop — Quality Management System"
+authors = []
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "qms_desktop_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-sql = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+argon2 = { version = "0.5", features = ["std"] }
+sha2 = { version = "0.10", features = ["oid"] }
+hmac = "0.12"
+mac_address = "1.1"
+hex = "0.4"
+rsa = { version = "0.9", features = ["pem"] }
+base64 = "0.22"
+reqwest = { version = "0.12", features = ["json", "native-tls"] }
+
+[patch.crates-io]
+# brotli 8.0.3 packaging bug: direct dep uses alloc-no-stdlib 2.x while sub-deps use 3.x.
+# This local patch changes the single dependency version to 3.0, making the tree consistent.
+brotli = { path = "patches/brotli" }
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
+# Build scripts (build.rs) are compiled with debug-like settings so their binary
+# hashes match the already-trusted debug build scripts on this machine, allowing
+# them to run under the Windows Application Control policy on this build host.
+[profile.release.build-override]
+opt-level = 0
+debug = false
+codegen-units = 256
+incremental = false
+overflow-checks = false

@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+target/
+src-tauri/target/
+.cargo/
+test-builds/
+*.msi
+*.exe
+
+# Environment files / secrets
+.env
+.env.*
+*.env
+*.local
+
+# License / cryptographic secrets
+license_private_key.pem
+license_hash_secret.txt
+license_public_key.pem
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Local databases / customer data
+*.db
+*.sqlite
+*.sqlite3
+uploads/
+backups/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

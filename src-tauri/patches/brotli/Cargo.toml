@@ -1,0 +1,56 @@
+[package]
+name = "brotli"
+version = "8.0.3"
+authors = ["Daniel Reiter Horn <danielrh@dropbox.com>", "The Brotli Authors"]
+description = "A brotli compressor and decompressor that with an interface avoiding the rust stdlib. This makes it suitable for embedded devices and kernels. It is designed with a pluggable allocator so that the standard lib's allocator may be employed. The default build also includes a stdlib allocator and stream interface. Disable this with --features=no-stdlib. All included code is safe."
+license = "BSD-3-Clause AND MIT"
+documentation = "https://docs.rs/brotli/"
+homepage = "https://github.com/dropbox/rust-brotli"
+repository = "https://github.com/dropbox/rust-brotli"
+keywords = ["brotli", "decompression", "lz77", "huffman", "nostd"]
+categories = ["compression", "no-std"]
+readme = "README.md"
+autobins = false
+edition = "2015"
+rust-version = "1.59.0"
+
+[[bin]]
+doc = false
+name = "brotli"
+path = "src/bin/brotli.rs"
+
+[[bin]]
+doc = false
+name = "catbrotli"
+path = "src/bin/catbrotli.rs"
+
+[profile.release]
+lto = true
+incremental = false
+
+[dependencies]
+# FIX: upgraded from "2.0" to "3.0" to match brotli-decompressor 5.x and alloc-stdlib 0.2.3
+# brotli 8.0.3 has a packaging bug where it kept alloc-no-stdlib 2.x while its sub-deps
+# upgraded to 3.x, causing StandardAlloc type incompatibility at compile time.
+"alloc-no-stdlib" = { version = "3.0" }
+"alloc-stdlib" = { version = "~0.2", optional = true }
+"brotli-decompressor" = { version = "~5.0", default-features = false }
+"sha2" = { version = "~0.10", optional = true }
+
+[features]
+default = ["std"]
+benchmark = ["brotli-decompressor/benchmark"]
+billing = []
+disable-timer = ["brotli-decompressor/disable-timer"]
+disallow_large_window_size = []
+external-literal-probability = []
+ffi-api = ["brotli-decompressor/ffi-api"]
+float64 = []
+floating_point_context_mixing = []
+no-stdlib-ffi-binding = []
+pass-through-ffi-panics = []
+seccomp = ["brotli-decompressor/seccomp"]
+simd = []
+std = ["alloc-stdlib", "brotli-decompressor/std"]
+validation = ["sha2"]
+vector_scratch_space = []
