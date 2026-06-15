@@ -1,45 +1,80 @@
-# Dependencies
-node_modules/
+# ============================================================
+# QMS Desktop — .gitignore
+# ============================================================
 
-# Build outputs
+# ------ Node / npm ------
+node_modules/
+license-admin/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ------ Build outputs ------
 dist/
+dist-ssr/
+.cargo/
+
+# ------ Rust / Cargo ------
 target/
 src-tauri/target/
-.cargo/
+
+# ------ Tauri ------
+src-tauri/gen/
+
+# ------ Test / release build artifacts (use GitHub Releases instead) ------
 test-builds/
 *.msi
 *.exe
 
-# Environment files / secrets
+# ------ Environment files — NEVER commit secrets ------
 .env
 .env.*
 *.env
 *.local
+!.env.example
+!.env.*.example
 
-# License / cryptographic secrets
-license_private_key.pem
-license_hash_secret.txt
-license_public_key.pem
+# ------ Private keys and secrets — NEVER commit ------
 *.pem
 *.key
-*.pfx
 *.p12
+*.pfx
+license_private_key.pem
+license_public_key.pem
+license_hash_secret.txt
 
-# Local databases / customer data
+# ------ Supabase CLI state ------
+supabase/.temp/
+
+# ------ Local database files (customer data — not committed) ------
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+
+# ------ Upload / backup data directories ------
 uploads/
 backups/
 
-# OS / editor
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
+# ------ TypeScript incremental build ------
+*.tsbuildinfo
 
-# Logs
+# ------ OS / editor artifacts ------
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ------ JetBrains / VS Code ------
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# ------ Logs ------
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
