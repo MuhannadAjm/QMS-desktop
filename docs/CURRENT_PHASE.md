@@ -2,10 +2,37 @@
 
 | Field | Value |
 |---|---|
-| Phase | **Phase 13 — Final QA Regression and Release Candidate Validation** |
+| Phase | **Phase 14 — Final Release Package and Delivery Preparation** |
 | Status | **Completed** |
 | Date | 2026-06-16 |
-| Next Phase | Phase 14 — Release Package |
+| Next Phase | — (v1.0.0 release complete) |
+
+## What Was Delivered (Phase 14)
+
+- **H-01 RESOLVED** — RSA key pair verification: Node.js confirmed MATCH — private key matches embedded public key in `rsa_public_key.rs`. Ready for customer license issuance.
+- **Final build** — TypeScript ✓ (1647 modules, 2.64s), Rust ✓ (1.77s), Tauri release ✓ (1m 42s)
+- **Release folder** — `D:\QMS-Desktop\release\QMS-Desktop-v1.0.0\` with final MSI (3.51 MB) and NSIS (2.13 MB)
+- **SHA256 checksums** — `CHECKSUMS-SHA256.txt` in release folder
+- **6 release documentation files** — Release Notes, Installation Guide, License Activation Guide, Backup/Restore Guide, Admin Quick Start, Security and Data Notes
+- **Final Release Checklist** — `FINAL_RELEASE_CHECKLIST.md`
+- **Phase 14 report** — `docs/reports/PHASE_14_FINAL_RELEASE_PACKAGE_REPORT.md`
+- **Release status** — Ready for internal delivery; manual tests recommended before customer delivery
+
+## Build Artifact Paths
+
+| Artifact | Path | Size |
+|---|---|---|
+| MSI (final release) | `D:\QMS-Desktop\release\QMS-Desktop-v1.0.0\QMS-Desktop-v1.0.0-x64.msi` | 3.51 MB |
+| NSIS (final release) | `D:\QMS-Desktop\release\QMS-Desktop-v1.0.0\QMS-Desktop-v1.0.0-x64-setup.exe` | 2.13 MB |
+
+## SHA256 Checksums
+
+```
+C4E7C66BBC296D4D8809B2E5C6844E766B2BECB5233E396401A5A3017DE47D3A  QMS-Desktop-v1.0.0-x64.msi
+8273D2E3824E44C7A725C8FF87025AB95EA367D15349A053C2A214E8B31B2815  QMS-Desktop-v1.0.0-x64-setup.exe
+```
+
+---
 
 ## What Was Delivered (Phase 13)
 

@@ -1,0 +1,9 @@
+QMS Desktop v1.0.0 — SHA256 Checksums
+Generated: 2026-06-16
+
+C4E7C66BBC296D4D8809B2E5C6844E766B2BECB5233E396401A5A3017DE47D3A  QMS-Desktop-v1.0.0-x64.msi
+8273D2E3824E44C7A725C8FF87025AB95EA367D15349A053C2A214E8B31B2815  QMS-Desktop-v1.0.0-x64-setup.exe
+
+Verification (PowerShell):
+  Get-FileHash -Algorithm SHA256 QMS-Desktop-v1.0.0-x64.msi
+  Get-FileHash -Algorithm SHA256 QMS-Desktop-v1.0.0-x64-setup.exe
