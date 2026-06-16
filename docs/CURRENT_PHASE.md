@@ -2,10 +2,58 @@
 
 | Field | Value |
 |---|---|
-| Phase | **Phase 12 — Security Hardening Review and Release Safety Audit** |
+| Phase | **Phase 13 — Final QA Regression and Release Candidate Validation** |
 | Status | **Completed** |
 | Date | 2026-06-16 |
-| Next Phase | Phase 13 — TBD |
+| Next Phase | Phase 14 — Release Package |
+
+## What Was Delivered (Phase 13)
+
+- **Full regression QA** — Code-level static verification of all source files: auth, permissions, backup, restore, reports, sidebar, license badge, menu, help dialogs, security controls, error handling
+- **Zero new bugs found** — No functional regressions introduced across Phases 11A–12
+- **Build verified** — TypeScript ✓ (1647 modules, 2.60s), Rust ✓ (1.97s), Tauri release ✓ (1m 41s)
+- **All Phase 11 features verified** — Username login, collapsible sidebar, license badge, reports empty state, backup safety restore, import backup, all 5 help dialogs, EULA in installer
+- **Security regression confirmed** — All Phase 12 controls still active; no regression
+- **Release readiness** — Ready for Release Package; BUG-08/H-01 must be resolved before first customer activation
+- **Build** — MSI 3.51 MB, NSIS 2.13 MB
+
+## Build Artifact Paths
+
+| Artifact | Path | Size |
+|---|---|---|
+| MSI (Phase 13 QA test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase13-final-qa-test.msi` | 3.51 MB |
+| NSIS (Phase 13 QA test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase13-final-qa-test-setup.exe` | 2.13 MB |
+
+## Module Table (Updated Through Phase 13)
+
+| Module | Phase | Commands | Status |
+|---|---|---|---|
+| Foundation / DB | 1–2 | — | ✓ Done |
+| Auth / Users / Settings | 3 | 8 | ✓ Done |
+| Documents | 4 | 9 | ✓ Done |
+| CAPA | 5 | 9 | ✓ Done |
+| Risks | 6 | 9+2 | ✓ Done |
+| Complaints | 6 | 9+2 | ✓ Done |
+| Audits | 7 | 13 | ✓ Done |
+| Non-Conformities | 7 | 10 | ✓ Done |
+| Dashboard | 8 | 5 | ✓ Done |
+| Reports | 8 | 6 | ✓ Done |
+| Backup | 8 | 5 | ✓ Done |
+| Cross-Module Links | 8B | 4 | ✓ Done |
+| License Engine | 9A | 7 | ✓ Done |
+| Online Activation | 9B | 2 | ✓ Done |
+| Installer / Packaging | 9C | 0 | ✓ Done |
+| License RSA Fix + Menu + Icon | 10B | 0 | ✓ Done |
+| Auth/Users/Profile Cleanup | 11A | +2 | ✓ Done |
+| License/Sidebar/Nav Shell | 11B | 0 | ✓ Done |
+| Reports/Print/Export Fixes | 11C | 0 | ✓ Done |
+| Backup/Restore/Import Flow | 11D | +1 | ✓ Done |
+| Desktop Menu/Help/About/Support | 11E | 0 | ✓ Done |
+| Installer EULA/Icon/Branding | 11F | 0 | ✓ Done |
+| Security Hardening Review | 12 | 0 | ✓ Done |
+| Final QA Regression | 13 | 0 | ✓ Done |
+
+---
 
 ## What Was Delivered (Phase 12)
 

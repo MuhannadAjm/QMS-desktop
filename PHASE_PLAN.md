@@ -29,7 +29,8 @@
 | 11E | Desktop Menu, Help, About, Support, Updates, Fullscreen Cleanup | Yes | No | COMPLETE |
 | 11F | Installer EULA, Icon, Branding, and Release Visual Identity | No | No | COMPLETE |
 | 12 | Security Hardening Review and Release Safety Audit | No | No | COMPLETE |
-| 13 | TBD | TBD | TBD | PENDING |
+| 13 | Final QA Regression and Release Candidate Validation | No | No | COMPLETE |
+| 14 | TBD — Release Package | TBD | No | PENDING |
 
 ---
 
