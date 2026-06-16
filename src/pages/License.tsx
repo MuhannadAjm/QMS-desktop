@@ -1,18 +1,24 @@
 import { useEffect, useState } from 'react';
-import { KeyRound, RefreshCw, Upload, Trash2, Plus, Wifi, ChevronDown, Copy } from 'lucide-react';
+import {
+  KeyRound, RefreshCw, Upload, Trash2, Plus, Wifi,
+  ChevronDown, Copy, X, Loader2, RotateCcw,
+} from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
+import { useLicenseStore } from '../stores/licenseStore';
 import { licenseService } from '../services/licenseService';
 import { checkFirstAdminExists } from '../services/authService';
 import type { LicenseDetails } from '../types/license';
 import PageHeader from '../components/ui/PageHeader';
 import Card from '../components/ui/Card';
 
+// ─── State badge ───────────────────────────────────────────────────────────
+
 function StateBadge({ state, label }: { state: string; label: string }) {
   const styles: Record<string, string> = {
     ACTIVE:            'bg-[#DCFCE7] border-[#BBF7D0] text-[#15803D]',
     DEV_BYPASS:        'bg-[#DCFCE7] border-[#BBF7D0] text-[#15803D]',
-    EXPIRED:           'bg-[#FEF3C7] border-[#FDE68A] text-[#B45309]',
-    NOT_ACTIVATED:     'bg-[#F1F5F9] border-[#E2E8F0] text-[#64748B]',
+    EXPIRED:           'bg-[#FEE2E2] border-[#FECACA] text-[#B91C1C]',
+    NOT_ACTIVATED:     'bg-[#FEF3C7] border-[#FDE68A] text-[#B45309]',
     HARDWARE_MISMATCH: 'bg-[#FEE2E2] border-[#FECACA] text-[#B91C1C]',
     REVOKED:           'bg-[#FEE2E2] border-[#FECACA] text-[#B91C1C]',
     INVALID:           'bg-[#FEE2E2] border-[#FECACA] text-[#B91C1C]',
@@ -26,18 +32,149 @@ function StateBadge({ state, label }: { state: string; label: string }) {
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
-  if (!value) return null;
+// ─── Detail row — hides when value is null/undefined/empty ─────────────────
+
+function DetailRow({
+  label,
+  value,
+  alwaysShow,
+}: {
+  label: string;
+  value: string | null | undefined;
+  alwaysShow?: boolean;
+}) {
+  if (!alwaysShow && !value) return null;
   return (
     <div className="flex items-start gap-4 py-2 border-b border-[#F1F5F9] last:border-0">
       <span className="text-[12px] text-[#64748B] w-44 shrink-0">{label}</span>
-      <span className="text-[13px] text-[#1E3A5F] font-medium break-all">{value}</span>
+      <span className="text-[13px] text-[#1E3A5F] font-medium break-all">
+        {value || '—'}
+      </span>
     </div>
   );
 }
 
+// ─── Helper: format expires_at to readable date or "Never" ─────────────────
+
+function formatExpiry(raw: string | null | undefined): string {
+  if (!raw) return 'Never';
+  const date = raw.split('T')[0];
+  return date || 'Never';
+}
+
+// ─── Update License Key modal ──────────────────────────────────────────────
+
+function UpdateLicenseModal({
+  onSuccess,
+  onClose,
+}: {
+  onSuccess: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [key, setKey] = useState('');
+  const [machineLabel, setMachineLabel] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const setLicenseStatus = useLicenseStore((s) => s.setLicenseStatus);
+
+  async function handleActivate() {
+    if (!key.trim()) return;
+    setBusy(true);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      const result = await licenseService.activateLicenseOnline(
+        key.trim(),
+        machineLabel.trim() || 'My Machine',
+      );
+      if (result.is_valid) {
+        setLicenseStatus(result.state, result.state_label, result.is_valid);
+        setSuccessMsg(`Activated: ${result.state_label}`);
+        await onSuccess();
+        setTimeout(() => onClose(), 900);
+      } else {
+        setError(`Activation failed: ${result.message}`);
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative bg-white rounded-lg border border-[#E2E8F0] shadow-xl w-full max-w-sm mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-[15px] font-semibold text-[#1A202C]">Update License Key</h2>
+          <button onClick={onClose} className="text-[#94A3B8] hover:text-[#64748B]">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-[12px] font-medium text-[#64748B] mb-1.5">License Key</label>
+            <input
+              type="text"
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              placeholder="QMS-XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXX"
+              autoFocus
+              className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-[13px] font-mono text-[#1E3A5F] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20"
+            />
+          </div>
+          <div>
+            <label className="block text-[12px] font-medium text-[#64748B] mb-1.5">
+              Machine Label <span className="text-[#94A3B8] font-normal">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={machineLabel}
+              onChange={(e) => setMachineLabel(e.target.value)}
+              placeholder="e.g. Office PC"
+              className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-[13px] text-[#1E3A5F] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20"
+            />
+          </div>
+          {error && (
+            <p className="text-[12px] text-red-600 bg-red-50 border border-red-100 rounded px-3 py-2">
+              {error}
+            </p>
+          )}
+          {successMsg && (
+            <p className="text-[12px] text-green-700 bg-green-50 border border-green-100 rounded px-3 py-2">
+              {successMsg}
+            </p>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-8 px-4 text-[13px] text-[#64748B] hover:text-[#1A202C] border border-[#E2E8F0] rounded-md transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleActivate}
+              disabled={busy || !key.trim()}
+              className="flex items-center gap-1.5 h-8 px-4 text-[13px] font-medium bg-[#1E3A5F] hover:bg-[#2E5080] text-white rounded-md transition-colors disabled:opacity-60"
+            >
+              {busy ? <Loader2 size={13} className="animate-spin" /> : <Wifi size={13} />}
+              {busy ? 'Activating…' : 'Activate'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main License page ─────────────────────────────────────────────────────
+
 export default function License() {
   const { bootstrapState, setBootstrapResult, setLicenseInvalid } = useAuthStore();
+  const setLicenseStatus = useLicenseStore((s) => s.setLicenseStatus);
   const isGateMode = bootstrapState === 'license-invalid';
 
   const [details, setDetails]           = useState<LicenseDetails | null>(null);
@@ -51,6 +188,7 @@ export default function License() {
   const [success, setSuccess]           = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [fpCopied, setFpCopied]         = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -62,6 +200,8 @@ export default function License() {
       ]);
       setDetails(d);
       setFingerprint(fp);
+      // Keep topbar license badge in sync
+      setLicenseStatus(d.state, d.state_label, d.is_valid);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -76,6 +216,7 @@ export default function License() {
     setBusy(true); setError(null); setSuccess(null);
     try {
       const result = await licenseService.importLicenseToken(importText.trim());
+      setLicenseStatus(result.state, result.state_label, result.is_valid);
       if (result.is_valid) {
         setSuccess(`License activated: ${result.state_label}`);
         setImportText('');
@@ -102,6 +243,7 @@ export default function License() {
         onlineKey.trim(),
         machineLabel.trim() || 'My Machine',
       );
+      setLicenseStatus(result.state, result.state_label, result.is_valid);
       if (result.is_valid) {
         setSuccess(`License activated: ${result.state_label}`);
         setOnlineKey('');
@@ -125,6 +267,7 @@ export default function License() {
     setBusy(true); setError(null); setSuccess(null);
     try {
       const result = await licenseService.validateLicenseOnline();
+      setLicenseStatus(result.state, result.state_label, result.is_valid);
       setSuccess(`Online validation: ${result.state_label} — ${result.message}`);
       if (!result.is_valid && !isGateMode) setLicenseInvalid();
       await load();
@@ -139,6 +282,7 @@ export default function License() {
     setBusy(true); setError(null); setSuccess(null);
     try {
       const result = await licenseService.validateLocalLicense();
+      setLicenseStatus(result.state, result.state_label, result.is_valid);
       setSuccess(`Validation: ${result.state_label} — ${result.message}`);
       if (!result.is_valid && !isGateMode) setLicenseInvalid();
       await load();
@@ -153,6 +297,7 @@ export default function License() {
     setBusy(true); setError(null); setSuccess(null);
     try {
       const result = await licenseService.createDevLicenseForCurrentMachine();
+      setLicenseStatus(result.state, result.state_label, result.is_valid);
       setSuccess(`Dev license created: ${result.state_label}`);
       await load();
       if (isGateMode && result.is_valid) {
@@ -189,15 +334,12 @@ export default function License() {
 
   const isActive = details?.is_valid ?? false;
 
-  // ── Gate mode ──────────────────────────────────────────────────────────────────
-  // Rendered bare (no AppLayout). #root has height:100% overflow:hidden, so this
-  // div must use h-full + overflow-y-auto to act as its own scroll container.
+  // ── Gate mode ──────────────────────────────────────────────────────────────
   if (isGateMode) {
     return (
       <div className="h-full overflow-y-auto overflow-x-hidden bg-[#F4F6F9]">
         <div className="max-w-md mx-auto px-4 pt-10 pb-16 space-y-4">
 
-          {/* Logo / title */}
           <div className="text-center pb-2">
             <div className="w-12 h-12 rounded-xl bg-[#1E3A5F] flex items-center justify-center mx-auto mb-3">
               <span className="text-white font-bold text-xl">Q</span>
@@ -210,7 +352,6 @@ export default function License() {
             <p className="text-center text-[13px] text-[#64748B] py-4">Loading…</p>
           ) : (
             <>
-              {/* Main activation card */}
               <Card>
                 <div className="space-y-3">
                   <input
@@ -241,7 +382,6 @@ export default function License() {
                 </div>
               </Card>
 
-              {/* Status banners */}
               {error && (
                 <div className="px-4 py-3 rounded-lg bg-[#FEE2E2] border border-[#FECACA] text-[12px] text-[#B91C1C]">
                   {error}
@@ -253,13 +393,12 @@ export default function License() {
                 </div>
               )}
 
-              {/* Support text */}
               <p className="text-center text-[12px] text-[#94A3B8]">
                 Need help?{' '}
                 <span className="text-[#1E3A5F] font-medium">Contact support.</span>
               </p>
 
-              {/* Advanced — Device ID only, no technical tools */}
+              {/* Advanced — Device ID only */}
               <div>
                 <button
                   onClick={() => setAdvancedOpen(v => !v)}
@@ -279,9 +418,7 @@ export default function License() {
                     </p>
                     {fingerprint ? (
                       <>
-                        <span className="text-[11px] text-[#64748B] uppercase tracking-wide block mb-1">
-                          Device ID
-                        </span>
+                        <span className="text-[11px] text-[#64748B] uppercase tracking-wide block mb-1">Device ID</span>
                         <div className="flex items-center gap-2 mb-2">
                           <p className="flex-1 text-[12px] font-mono text-[#1E3A5F] bg-[#F8FAFC] rounded px-2 py-1.5 select-all break-all">
                             {fingerprint}
@@ -294,9 +431,7 @@ export default function License() {
                             {fpCopied ? 'Copied!' : 'Copy'}
                           </button>
                         </div>
-                        <p className="text-[11px] text-[#94A3B8]">
-                          Provide this Device ID to support if requested.
-                        </p>
+                        <p className="text-[11px] text-[#94A3B8]">Provide this Device ID to support if requested.</p>
                       </>
                     ) : (
                       <p className="text-[12px] text-[#64748B]">Device ID not available.</p>
@@ -305,7 +440,6 @@ export default function License() {
                 )}
               </div>
 
-              {/* DEV controls — hidden in production builds */}
               {import.meta.env.DEV && (
                 <Card>
                   <div className="flex items-center gap-2 mb-3">
@@ -333,7 +467,7 @@ export default function License() {
     );
   }
 
-  // ── Normal app mode (inside AppLayout — <main> already provides overflow-y-auto) ──
+  // ── Normal app mode (inside AppLayout) ───────────────────────────────────
   return (
     <div className="p-6 pb-10 max-w-3xl mx-auto space-y-6">
       <PageHeader
@@ -348,47 +482,52 @@ export default function License() {
         </Card>
       ) : isActive ? (
         <>
-          {/* Active license — status + details */}
+          {/* ── Active license card ── */}
           <Card>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-[13px] font-semibold text-[#1E3A5F]">License Status</span>
                 {details && <StateBadge state={details.state} label={details.state_label} />}
               </div>
+
               {details?.message && (
                 <p className="text-[12px] text-[#64748B]">{details.message}</p>
               )}
+
               {details && (
                 <div className="space-y-0">
-                  <DetailRow label="Customer"        value={details.customer_name} />
-                  <DetailRow label="Plan"            value={details.plan} />
-                  <DetailRow label="Issued"          value={details.issued_at?.split('T')[0]} />
-                  <DetailRow label="Activated"       value={details.activated_at?.split('T')[0]} />
-                  <DetailRow label="Expires"         value={details.expires_at?.split('T')[0] ?? 'Never'} />
-                  <DetailRow label="Next Validation" value={details.next_validation_due_at?.split('T')[0]} />
-                  {details.features.length > 0 && (
-                    <DetailRow label="Features" value={details.features.join(', ')} />
-                  )}
+                  <DetailRow label="Customer" value={details.customer_name} />
+                  <DetailRow label="Plan"     value={details.plan} />
+                  <DetailRow label="Expires"  value={formatExpiry(details.expires_at)} alwaysShow />
                 </div>
               )}
-              {details?.activation_id && (
-                <div className="pt-1">
+
+              {/* Primary actions */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                {details?.activation_id && (
                   <button
                     onClick={handleValidateOnline}
                     disabled={busy}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1D4ED8] rounded-lg border border-[#BFDBFE] disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1D4ED8] rounded-lg border border-[#BFDBFE] disabled:opacity-50 transition-colors"
                   >
                     <Wifi size={13} />
                     Validate Online
                   </button>
-                </div>
-              )}
+                )}
+                <button
+                  onClick={() => setShowUpdateModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-[#F8FAFC] hover:bg-[#F1F5F9] text-[#1E3A5F] rounded-lg border border-[#E2E8F0] transition-colors"
+                >
+                  <RotateCcw size={13} />
+                  Update License Key
+                </button>
+              </div>
             </div>
           </Card>
         </>
       ) : (
         <>
-          {/* Not active inside the app */}
+          {/* ── Not active — show status + activation form ── */}
           {details && (
             <Card>
               <div className="flex items-center justify-between mb-3">
@@ -421,7 +560,7 @@ export default function License() {
               <button
                 onClick={handleActivateOnline}
                 disabled={busy || !onlineKey.trim()}
-                className="flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold bg-[#1E3A5F] hover:bg-[#162d4a] text-white rounded-lg disabled:opacity-50"
+                className="flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold bg-[#1E3A5F] hover:bg-[#162d4a] text-white rounded-lg disabled:opacity-50 transition-colors"
               >
                 <Wifi size={14} />
                 {busy ? 'Activating…' : 'Activate Online'}
@@ -446,7 +585,7 @@ export default function License() {
         </div>
       )}
 
-      {/* Advanced / Support Tools — full version for logged-in admin use */}
+      {/* Advanced / Support Tools */}
       {!loading && (
         <div>
           <button
@@ -466,12 +605,22 @@ export default function License() {
                 Advanced / Support Tools
               </p>
 
-              {/* Device ID with copy */}
+              {/* Technical license dates */}
+              {details && (
+                <div className="space-y-0">
+                  <DetailRow label="Issued At"       value={details.issued_at?.split('T')[0]} />
+                  <DetailRow label="Activated At"    value={details.activated_at?.split('T')[0]} />
+                  <DetailRow label="Next Validation" value={details.next_validation_due_at?.split('T')[0]} />
+                  {details.features.length > 0 && (
+                    <DetailRow label="Features" value={details.features.join(', ')} />
+                  )}
+                </div>
+              )}
+
+              {/* Device ID */}
               {fingerprint && (
                 <div>
-                  <span className="text-[11px] text-[#64748B] uppercase tracking-wide block mb-1">
-                    Device ID
-                  </span>
+                  <span className="text-[11px] text-[#64748B] uppercase tracking-wide block mb-1">Device ID</span>
                   <div className="flex items-center gap-2">
                     <p className="flex-1 text-[12px] font-mono text-[#1E3A5F] bg-[#F8FAFC] rounded px-2 py-1.5 break-all select-all">
                       {fingerprint}
@@ -487,12 +636,12 @@ export default function License() {
                 </div>
               )}
 
-              {/* Re-validate local — available in logged-in mode */}
+              {/* Re-validate local */}
               <div>
                 <button
                   onClick={handleValidate}
                   disabled={busy}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#1E3A5F] rounded-lg disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#1E3A5F] rounded-lg disabled:opacity-50 transition-colors"
                 >
                   <RefreshCw size={13} />
                   Re-validate (local)
@@ -516,7 +665,7 @@ export default function License() {
                   <button
                     onClick={handleImport}
                     disabled={busy || !importText.trim()}
-                    className="mt-2 flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold bg-[#1E3A5F] hover:bg-[#162d4a] text-white rounded-lg disabled:opacity-50"
+                    className="mt-2 flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold bg-[#1E3A5F] hover:bg-[#162d4a] text-white rounded-lg disabled:opacity-50 transition-colors"
                   >
                     <Upload size={13} />
                     Activate via Token
@@ -528,7 +677,7 @@ export default function License() {
         </div>
       )}
 
-      {/* DEV controls — hidden in production builds (import.meta.env.DEV is false in release) */}
+      {/* DEV controls — hidden in production builds */}
       {import.meta.env.DEV && (
         <Card>
           <div className="flex items-center gap-2 mb-3">
@@ -544,7 +693,7 @@ export default function License() {
             <button
               onClick={handleDevCreate}
               disabled={busy}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1D4ED8] rounded-lg border border-[#BFDBFE] disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1D4ED8] rounded-lg border border-[#BFDBFE] disabled:opacity-50 transition-colors"
             >
               <Plus size={13} />
               Create Dev License
@@ -552,13 +701,21 @@ export default function License() {
             <button
               onClick={handleDevClear}
               disabled={busy}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-[#FEF2F2] hover:bg-[#FEE2E2] text-[#B91C1C] rounded-lg border border-[#FECACA] disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-[#FEF2F2] hover:bg-[#FEE2E2] text-[#B91C1C] rounded-lg border border-[#FECACA] disabled:opacity-50 transition-colors"
             >
               <Trash2 size={13} />
               Clear License
             </button>
           </div>
         </Card>
+      )}
+
+      {/* Update License Key modal */}
+      {showUpdateModal && (
+        <UpdateLicenseModal
+          onSuccess={load}
+          onClose={() => setShowUpdateModal(false)}
+        />
       )}
     </div>
   );

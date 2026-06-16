@@ -2,10 +2,31 @@
 
 | Field | Value |
 |---|---|
-| Phase | **Phase 11A — Auth, Users, Profile, and Menu Context Cleanup** |
+| Phase | **Phase 11B — License, Sidebar, and Navigation Shell Cleanup** |
 | Status | **Completed** |
 | Date | 2026-06-16 |
-| Next Phase | Phase 11B (UI/UX Polish) — Reports role filtering, frontend route guards, OVERDUE badges, EULA installer screen, code signing, BUG-03 to BUG-09 |
+| Next Phase | Phase 11C — TBD |
+
+## What Was Delivered (Phase 11B)
+
+- **licenseStore.ts** — Shared Zustand store for license state; read by Topbar, written by App.tsx (startup) and License.tsx (all actions)
+- **Topbar license badge** — Colored pill badge (green/amber/red) reflecting actual license state; replaces hardcoded "License Pending" text
+- **Topbar breadcrumb** — "QMS Desktop" root is now a `<Link to="/dashboard">` — clickable, navigates to Dashboard
+- **Sidebar collapsible** — Toggle button collapses sidebar to 56px icon-only mode; state persisted to `localStorage`; smooth `transition-[width]` animation
+- **Sidebar — Settings/License removed** — Both items removed from sidebar nav; still accessible via `Tools` menu in native menu bar
+- **License page simplified** — Active card shows Status, Customer, Plan, Expires; technical fields moved to collapsible Advanced section
+- **BUG-09 fixed** — `formatExpiry()` helper returns "Never" for null, undefined, or empty string `expires_at`
+- **Update License Key modal** — New button on active license card opens modal to replace/upgrade license key; failure keeps current license intact
+- **Build** — TypeScript ✓ (1641 modules, 2.51s), Rust cargo check ✓ (1.42s), Rust release ✓ (2m 10s), MSI 3.59 MB, NSIS 2.11 MB
+
+## Build Artifact Paths
+
+| Artifact | Path | Size |
+|---|---|---|
+| MSI (test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase11b-license-sidebar-test.msi` | 3.59 MB |
+| NSIS (test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase11b-license-sidebar-test-setup.exe` | 2.11 MB |
+| MSI (release) | `C:\Users\roaas\.cargo\targets\qms-desktop\release\bundle\msi\QMS Desktop_1.0.0_x64_en-US.msi` | 3.59 MB |
+| NSIS (release) | `C:\Users\roaas\.cargo\targets\qms-desktop\release\bundle\nsis\QMS Desktop_1.0.0_x64-setup.exe` | 2.11 MB |
 
 ## What Was Delivered (Phase 11A)
 
@@ -62,3 +83,4 @@
 | Installer / Packaging | 9C | 0 | ✓ Done |
 | License RSA Fix + Menu + Icon | 10B | 0 | ✓ Done |
 | Auth/Users/Profile Cleanup | 11A | +2 | ✓ Done |
+| License/Sidebar/Nav Shell | 11B | 0 | ✓ Done |

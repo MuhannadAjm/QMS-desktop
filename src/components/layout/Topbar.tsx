@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import { ChevronRight, User, LogOut, Settings2, KeyRound, X, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
+import { useLicenseStore } from '../../stores/licenseStore';
 import { updateOwnProfile, changeOwnPassword } from '../../services/authService';
 import { ROLE_LABELS } from '../../types/user';
 import type { UserRole } from '../../types/user';
+import type { LicenseState } from '../../types/license';
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -18,8 +20,40 @@ const PAGE_TITLES: Record<string, string> = {
   '/settings': 'Settings',
   '/reports': 'Reports',
   '/backup': 'Backup & Restore',
-  '/license': 'License Activation',
+  '/license': 'License',
 };
+
+const LICENSE_BADGE_CONFIG: Record<
+  LicenseState,
+  { cls: string; dot: string; label: string }
+> = {
+  ACTIVE:            { cls: 'bg-[#DCFCE7] text-[#15803D]', dot: 'bg-[#16A34A]', label: 'Licensed' },
+  DEV_BYPASS:        { cls: 'bg-[#DCFCE7] text-[#15803D]', dot: 'bg-[#16A34A]', label: 'Dev' },
+  EXPIRED:           { cls: 'bg-[#FEE2E2] text-[#DC2626]', dot: 'bg-[#DC2626]', label: 'Expired' },
+  NOT_ACTIVATED:     { cls: 'bg-[#FEF3C7] text-[#B45309]', dot: 'bg-[#D97706]', label: 'Pending' },
+  HARDWARE_MISMATCH: { cls: 'bg-[#FEE2E2] text-[#DC2626]', dot: 'bg-[#DC2626]', label: 'License Error' },
+  REVOKED:           { cls: 'bg-[#FEE2E2] text-[#DC2626]', dot: 'bg-[#DC2626]', label: 'Revoked' },
+  INVALID:           { cls: 'bg-[#FEE2E2] text-[#DC2626]', dot: 'bg-[#DC2626]', label: 'Invalid' },
+};
+
+function LicenseBadge() {
+  const { state } = useLicenseStore();
+  if (!state) return null;
+  const cfg = LICENSE_BADGE_CONFIG[state] ?? {
+    cls: 'bg-[#F1F5F9] text-[#64748B]',
+    dot: 'bg-[#94A3B8]',
+    label: state,
+  };
+  return (
+    <div
+      className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold ${cfg.cls}`}
+      title="License status"
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+      {cfg.label}
+    </div>
+  );
+}
 
 type ActiveModal = 'profile' | 'password' | null;
 
@@ -32,7 +66,6 @@ export default function Topbar() {
   const [activeModal, setActiveModal] = useState<ActiveModal>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -57,15 +90,21 @@ export default function Topbar() {
   return (
     <>
       <header className="h-14 bg-white border-b border-[#E2E8F0] flex items-center justify-between px-6 shrink-0">
-        {/* Left: breadcrumb */}
+        {/* Left: breadcrumb — root is clickable and navigates to Dashboard */}
         <div className="flex items-center gap-1.5">
-          <span className="text-[12px] text-slate-400 font-medium">QMS Desktop</span>
+          <Link
+            to="/dashboard"
+            className="text-[12px] text-slate-400 font-medium hover:text-[#1E3A5F] transition-colors"
+          >
+            QMS Desktop
+          </Link>
           <ChevronRight size={13} className="text-slate-300" />
           <span className="text-[13px] font-semibold text-[#1A202C]">{pageTitle}</span>
         </div>
 
-        {/* Right: user profile */}
+        {/* Right: license status + user profile */}
         <div className="flex items-center gap-3">
+          <LicenseBadge />
           <div className="w-px h-4 bg-[#E2E8F0]" />
 
           {/* Profile button + dropdown */}
@@ -89,13 +128,11 @@ export default function Topbar() {
 
             {dropdownOpen && (
               <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-[#E2E8F0] rounded-lg shadow-lg z-50 py-1">
-                {/* Header */}
                 <div className="px-4 py-3 border-b border-[#F1F5F9]">
                   <p className="text-[13px] font-semibold text-[#1A202C] truncate">{user?.name}</p>
                   <p className="text-[11px] text-[#64748B] truncate">@{user?.username}</p>
                 </div>
 
-                {/* Actions */}
                 <button
                   onClick={() => openModal('profile')}
                   className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] text-[#374151] hover:bg-[#F8FAFC] transition-colors"
@@ -126,7 +163,6 @@ export default function Topbar() {
         </div>
       </header>
 
-      {/* Profile edit modal */}
       {activeModal === 'profile' && user && (
         <ProfileModal
           userId={user.id}
@@ -139,7 +175,6 @@ export default function Topbar() {
         />
       )}
 
-      {/* Change password modal */}
       {activeModal === 'password' && user && (
         <PasswordModal
           userId={user.id}
@@ -442,5 +477,4 @@ function SuccessMsg({ text }: { text: string }) {
   );
 }
 
-// React import needed for JSX in helper components
 import React from 'react';

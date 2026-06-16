@@ -4,6 +4,22 @@ Chronological record of phases completed.
 
 ---
 
+## Phase 11B — License, Sidebar, and Navigation Shell Cleanup (2026-06-16)
+
+- **licenseStore.ts (new):** Zustand store with `state`, `stateLabel`, `isValid`, `setLicenseStatus`. Read by Topbar; written by App.tsx on startup and License.tsx on every action.
+- **Topbar — License badge:** `LicenseBadge` component reads from licenseStore; renders colored pill (green/amber/red) matching actual license state. Replaces the previous hardcoded "License Pending" text.
+- **Topbar — Breadcrumb root:** "QMS Desktop" text changed from `<span>` to `<Link to="/dashboard">`. Clicking it navigates to Dashboard.
+- **AppLayout — Collapsible sidebar:** `collapsed` state managed via `useState`, persisted to `localStorage` key `qms-sidebar-collapsed`. Passes `collapsed` + `onToggle` callback to Sidebar.
+- **Sidebar — Collapsible:** Accepts `collapsed` prop. Collapsed = `w-14` (56px), icons only, `title` tooltips, `PanelLeftOpen` expand button. Expanded = `w-60` (240px), icons + labels, `PanelLeftClose` collapse button. Width transition `transition-[width] duration-150`.
+- **Sidebar — Settings/License removed:** Both items removed from `navGroups`. Still accessible via native menu bar `Tools → Settings` and `Tools → License` (Phase 10B).
+- **License.tsx — Simplified card:** Active license shows Status, Customer, Plan, Expires. Technical fields (Issued At, Activated At, Next Validation, Device ID, Features, Re-validate local) moved to collapsible Advanced section.
+- **License.tsx — BUG-09 fix:** `formatExpiry()` helper uses `||` (not `??`) so empty string `""` returns `"Never"` correctly.
+- **License.tsx — Update License Key modal:** `UpdateLicenseModal` component; calls `activateLicenseOnline`; on success updates licenseStore + reloads; on failure keeps current license intact.
+- **Build:** TypeScript ✓ (1641 modules, 2.51s). Rust cargo check ✓ (1.42s). Rust release ✓ (2m 10s, 3 AppControl workaround passes). MSI 3.59 MB. NSIS 2.11 MB.
+- **Artifacts:** Copied to `D:\QMS-Desktop\test-builds\` with `phase11b-license-sidebar-test` suffix.
+
+---
+
 ## Phase 11A — Auth, Users, Profile, and Menu Context Cleanup (2026-06-16)
 
 - **Root change:** Login is now username-based. The `login` Tauri command accepts a `username` parameter (not email). The `create_first_admin` command now takes `username` + optional `email`. Email is no longer required anywhere.

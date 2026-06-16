@@ -6,6 +6,7 @@ import { initializeAppStorage } from './services/appStorageService';
 import { checkFirstAdminExists } from './services/authService';
 import { licenseService } from './services/licenseService';
 import { useAuthStore } from './stores/authStore';
+import { useLicenseStore } from './stores/licenseStore';
 
 // Handles native menu bar events emitted from Rust via menu-action event.
 // Must be rendered inside HashRouter so useNavigate is available.
@@ -71,6 +72,7 @@ function MenuListener() {
 
 export default function App() {
   const { bootstrapState, isAuthenticated, setBootstrapResult, setLicenseInvalid } = useAuthStore();
+  const setLicenseStatus = useLicenseStore((s) => s.setLicenseStatus);
 
   // Notify Rust of auth state changes so it can toggle backup menu items.
   useEffect(() => {
@@ -81,6 +83,7 @@ export default function App() {
     initializeAppStorage()
       .then(() => licenseService.getLicenseStatus())
       .then((status) => {
+        setLicenseStatus(status.state, status.state_label, status.is_valid);
         if (!status.is_valid) {
           setLicenseInvalid();
           return;
@@ -88,7 +91,7 @@ export default function App() {
         return checkFirstAdminExists().then((exists) => setBootstrapResult(!exists));
       })
       .catch(() => setBootstrapResult(false));
-  }, [setBootstrapResult, setLicenseInvalid]);
+  }, [setBootstrapResult, setLicenseInvalid, setLicenseStatus]);
 
   if (bootstrapState === 'loading') {
     return (
