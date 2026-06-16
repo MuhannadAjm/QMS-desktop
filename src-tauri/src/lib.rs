@@ -132,14 +132,16 @@ fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result
     ])?;
 
     // View menu
-    let reload_item      = MenuItem::with_id(app, "reload", "Reload", true, None::<&str>)?;
-    let sep_view1        = PredefinedMenuItem::separator(app)?;
-    let fullscreen_item  = MenuItem::with_id(app, "toggle-fullscreen", "Toggle Full Screen", true, Some("F11"))?;
-    let sep_view2        = PredefinedMenuItem::separator(app)?;
-    let zoom_in_item     = MenuItem::with_id(app, "zoom-in", "Zoom In", true, Some("Ctrl+Equal"))?;
-    let zoom_out_item    = MenuItem::with_id(app, "zoom-out", "Zoom Out", true, Some("Ctrl+Minus"))?;
-    let zoom_reset_item  = MenuItem::with_id(app, "zoom-reset", "Reset Zoom", true, Some("Ctrl+0"))?;
+    let toggle_sidebar_item = MenuItem::with_id(app, "toggle-sidebar",    "Toggle Sidebar",     true, None::<&str>)?;
+    let reload_item         = MenuItem::with_id(app, "reload",            "Reload",             true, Some("Ctrl+R"))?;
+    let sep_view1           = PredefinedMenuItem::separator(app)?;
+    let fullscreen_item     = MenuItem::with_id(app, "toggle-fullscreen", "Toggle Full Screen", true, Some("F11"))?;
+    let sep_view2           = PredefinedMenuItem::separator(app)?;
+    let zoom_in_item        = MenuItem::with_id(app, "zoom-in",           "Zoom In",            true, Some("Ctrl+Equal"))?;
+    let zoom_out_item       = MenuItem::with_id(app, "zoom-out",          "Zoom Out",           true, Some("Ctrl+Minus"))?;
+    let zoom_reset_item     = MenuItem::with_id(app, "zoom-reset",        "Reset Zoom",         true, Some("Ctrl+0"))?;
     let view_menu = Submenu::with_items(app, "View", true, &[
+        &toggle_sidebar_item,
         &reload_item,
         &sep_view1,
         &fullscreen_item,
@@ -149,14 +151,26 @@ fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result
         &zoom_reset_item,
     ])?;
 
-    // Tools menu
-    let settings_item = MenuItem::with_id(app, "navigate-settings", "Settings", true, None::<&str>)?;
-    let license_item  = MenuItem::with_id(app, "navigate-license",  "License",  true, None::<&str>)?;
+    // Tools menu — Settings requires login; License always accessible (works at license gate too)
+    let settings_item = MenuItem::with_id(app, "navigate-settings", "Settings", false, None::<&str>)?;
+    let license_item  = MenuItem::with_id(app, "navigate-license",  "License",  true,  None::<&str>)?;
     let tools_menu = Submenu::with_items(app, "Tools", true, &[&settings_item, &license_item])?;
 
     // Help menu
-    let about_item = MenuItem::with_id(app, "about", "About QMS Desktop", true, None::<&str>)?;
-    let help_menu  = Submenu::with_items(app, "Help", true, &[&about_item])?;
+    let help_item          = MenuItem::with_id(app, "help",             "Help",             true, None::<&str>)?;
+    let support_item       = MenuItem::with_id(app, "support",          "Support",          true, None::<&str>)?;
+    let tell_friend_item   = MenuItem::with_id(app, "tell-a-friend",    "Tell a Friend",    true, None::<&str>)?;
+    let check_updates_item = MenuItem::with_id(app, "check-for-updates","Check for Updates",true, None::<&str>)?;
+    let sep_help           = PredefinedMenuItem::separator(app)?;
+    let about_item         = MenuItem::with_id(app, "about",            "About QMS Desktop",true, None::<&str>)?;
+    let help_menu = Submenu::with_items(app, "Help", true, &[
+        &help_item,
+        &support_item,
+        &tell_friend_item,
+        &check_updates_item,
+        &sep_help,
+        &about_item,
+    ])?;
 
     Menu::with_items(app, &[&file_menu, &view_menu, &tools_menu, &help_menu])
 }
@@ -177,7 +191,7 @@ pub fn run() {
                 let authenticated: bool =
                     serde_json::from_str(event.payload()).unwrap_or(false);
                 if let Some(menu) = h.menu() {
-                    for id in ["create-backup", "restore-backup", "open-backups-folder"] {
+                    for id in ["create-backup", "restore-backup", "open-backups-folder", "navigate-settings"] {
                         if let Some(item) = menu.get(id) {
                             if let tauri::menu::MenuItemKind::MenuItem(mi) = item {
                                 mi.set_enabled(authenticated).ok();

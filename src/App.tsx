@@ -7,12 +7,19 @@ import { checkFirstAdminExists } from './services/authService';
 import { licenseService } from './services/licenseService';
 import { useAuthStore } from './stores/authStore';
 import { useLicenseStore } from './stores/licenseStore';
+import { useUiStore } from './stores/uiStore';
+import AboutDialog from './components/dialogs/AboutDialog';
+import HelpDialog from './components/dialogs/HelpDialog';
+import SupportDialog from './components/dialogs/SupportDialog';
+import TellAFriendDialog from './components/dialogs/TellAFriendDialog';
+import CheckForUpdatesDialog from './components/dialogs/CheckForUpdatesDialog';
 
 // Handles native menu bar events emitted from Rust via menu-action event.
 // Must be rendered inside HashRouter so useNavigate is available.
 function MenuListener() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuthStore();
+  const { toggleSidebar, openDialog } = useUiStore();
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -22,10 +29,13 @@ function MenuListener() {
       const action = event.payload;
       switch (action) {
         case 'navigate-settings':
-          navigate('/settings');
+          if (isAuthenticated) navigate('/settings');
           break;
         case 'navigate-license':
           navigate('/license');
+          break;
+        case 'toggle-sidebar':
+          if (isAuthenticated) toggleSidebar();
           break;
         case 'zoom-in': {
           const z = parseFloat(document.documentElement.style.zoom || '1');
@@ -41,11 +51,19 @@ function MenuListener() {
           document.documentElement.style.zoom = '1';
           break;
         case 'about':
-          window.alert(
-            'QMS Desktop\nVersion 1.0.0\n\n' +
-            'Quality Management System for ISO 9001 compliance.\n\n' +
-            'Built with Tauri 2 + React.'
-          );
+          openDialog('about');
+          break;
+        case 'help':
+          openDialog('help');
+          break;
+        case 'support':
+          openDialog('support');
+          break;
+        case 'tell-a-friend':
+          openDialog('tell-a-friend');
+          break;
+        case 'check-for-updates':
+          openDialog('check-for-updates');
           break;
         case 'create-backup':
         case 'restore-backup':
@@ -65,7 +83,7 @@ function MenuListener() {
       cancelled = true;
       unlisten?.();
     };
-  }, [navigate, isAuthenticated]);
+  }, [navigate, isAuthenticated, toggleSidebar, openDialog]);
 
   return null;
 }
@@ -73,8 +91,9 @@ function MenuListener() {
 export default function App() {
   const { bootstrapState, isAuthenticated, setBootstrapResult, setLicenseInvalid } = useAuthStore();
   const setLicenseStatus = useLicenseStore((s) => s.setLicenseStatus);
+  const { activeDialog, closeDialog } = useUiStore();
 
-  // Notify Rust of auth state changes so it can toggle backup menu items.
+  // Notify Rust of auth state changes so it can toggle menu items.
   useEffect(() => {
     emit('auth-changed', isAuthenticated).catch(() => {});
   }, [isAuthenticated]);
@@ -107,9 +126,18 @@ export default function App() {
   }
 
   return (
-    <HashRouter>
-      <MenuListener />
-      <AppRouter />
-    </HashRouter>
+    <>
+      <HashRouter>
+        <MenuListener />
+        <AppRouter />
+      </HashRouter>
+
+      {/* Global dialogs — outside HashRouter, work from any app state */}
+      <AboutDialog open={activeDialog === 'about'} onClose={closeDialog} />
+      <HelpDialog open={activeDialog === 'help'} onClose={closeDialog} />
+      <SupportDialog open={activeDialog === 'support'} onClose={closeDialog} />
+      <TellAFriendDialog open={activeDialog === 'tell-a-friend'} onClose={closeDialog} />
+      <CheckForUpdatesDialog open={activeDialog === 'check-for-updates'} onClose={closeDialog} />
+    </>
   );
 }

@@ -419,6 +419,46 @@ Run the app and open the License page — the fingerprint is displayed under "Ha
 
 ---
 
+## Help Menu / Dialogs (Phase 11E)
+
+### About dialog
+- **Help → About QMS Desktop** — opens About dialog showing live license details, signed-in user, version, copyright
+- Live data fetched via `get_license_details` Tauri command — shows current license state, customer, plan, expiry
+- No secrets (hardware fingerprint, token, private keys) are displayed
+
+### Support dialog
+- **Help → Support** — shows support email, app version, live license status, customer name
+- "Copy Support Info" button copies a plain-text summary to the clipboard
+- Clipboard content contains no secrets, no hardware IDs
+
+### Help dialog
+- **Help → Help** — scrollable getting started guide, modules overview, backup reminder, support contact
+- Works offline; no external links
+
+### Tell a Friend dialog
+- **Help → Tell a Friend** — pre-written copyable message about QMS Desktop; no tracking, no internet
+
+### Check for Updates dialog
+- **Help → Check for Updates** — shows current version; manual update instructions; no auto-download
+- To get a newer version: contact `support@qmsdesktop.com` and request the latest installer
+
+### Settings auth-gate
+- **Tools → Settings** starts disabled in the native menu bar
+- It is enabled automatically when the user logs in (`auth-changed` event) and disabled on logout
+- If the menu item appears grayed out, log in first
+
+### Toggle Sidebar via menu
+- **View → Toggle Sidebar** toggles the sidebar collapsed state
+- State is persisted to `localStorage` (key: `qms-sidebar-collapsed`)
+- Works identically to clicking the toggle button inside the sidebar
+
+### Fullscreen
+- **F11** or **View → Toggle Full Screen** toggles fullscreen
+- Hides Windows titlebar in fullscreen mode
+- User can always exit fullscreen with F11 again — no kiosk mode
+
+---
+
 ## Backup Troubleshooting
 
 ### "Backup folder does not exist"

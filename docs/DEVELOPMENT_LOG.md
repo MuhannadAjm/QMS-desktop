@@ -4,6 +4,34 @@ Chronological record of phases completed.
 
 ---
 
+## Phase 11E — Desktop Menu, Help, About, Support, Updates, and Fullscreen Cleanup
+**Date:** 2026-06-16 | **Branch:** `phase-11e-desktop-menu-help-updates`
+
+### Files Changed
+- `src-tauri/src/lib.rs` — Help menu expanded to 5 items + separator + About; Toggle Sidebar added to View menu; Reload gets Ctrl+R shortcut; Settings menu item starts disabled (enabled only after login, via `auth-changed` listener)
+- `src/stores/uiStore.ts` — NEW: Zustand store managing sidebar collapsed state (replaces AppLayout local state) + `activeDialog` / `openDialog` / `closeDialog` for dialog management
+- `src/components/layout/AppLayout.tsx` — reads sidebar state from `useUiStore` instead of local `useState`; allows View → Toggle Sidebar to work from any context
+- `src/App.tsx` — MenuListener extended: handles `toggle-sidebar`, `about`, `help`, `support`, `tell-a-friend`, `check-for-updates`; removes old `window.alert` About stub; renders all 5 global dialogs outside `HashRouter`
+- `src/components/dialogs/AboutDialog.tsx` — NEW: professional About dialog (app identity, live license details, signed-in user, copyright)
+- `src/components/dialogs/HelpDialog.tsx` — NEW: Help dialog (getting started steps, modules overview, backup reminder, support contact)
+- `src/components/dialogs/SupportDialog.tsx` — NEW: Support dialog (email, version, license status, customer, copy-to-clipboard support info)
+- `src/components/dialogs/TellAFriendDialog.tsx` — NEW: Tell a Friend dialog (copy-to-clipboard share message; no tracking, no internet)
+- `src/components/dialogs/CheckForUpdatesDialog.tsx` — NEW: Check for Updates dialog (current version, manual update instructions, no auto-update)
+
+### Key Behaviors
+- **Help menu** now has 5 items: Help, Support, Tell a Friend, Check for Updates, separator, About QMS Desktop
+- **About dialog**: fetches live license details via `get_license_details` on open; shows status, customer, plan, expiry, signed-in user; no secrets exposed
+- **Support dialog**: shows support email, version, license status, customer; "Copy Support Info" copies non-secret summary to clipboard
+- **Tell a Friend**: pre-written copyable message; no internet, no tracking
+- **Check for Updates**: shows current version; manual update instructions; no auto-downloader
+- **Toggle Sidebar** (View menu) now works because AppLayout reads from shared Zustand store
+- **Settings** (Tools menu) starts disabled; enabled after login; disabled again on logout
+- **F11 / Zoom / Reload** shortcuts confirmed working via existing Rust handlers
+- **Fullscreen**: F11 and View → Toggle Full Screen both toggle fullscreen; no kiosk mode; user can always exit
+- **Build**: TypeScript ✓ (1647 modules, 2.48s), Rust ✓ (cargo check 47.48s), Tauri release ✓ (1 pass, 2m 11s), MSI 3.51 MB, NSIS 2.13 MB
+
+---
+
 ## Phase 11D — Backup, Restore, Import, and Data Transfer Flow
 **Date:** 2026-06-16 | **Branch:** `phase-11d-backup-restore-import`
 

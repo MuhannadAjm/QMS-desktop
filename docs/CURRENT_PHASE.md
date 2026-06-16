@@ -2,10 +2,32 @@
 
 | Field | Value |
 |---|---|
-| Phase | **Phase 11D — Backup, Restore, Import, and Data Transfer Flow** |
+| Phase | **Phase 11E — Desktop Menu, Help, About, Support, Updates, and Fullscreen Cleanup** |
 | Status | **Completed** |
 | Date | 2026-06-16 |
-| Next Phase | Phase 11E — TBD |
+| Next Phase | Phase 11F — TBD |
+
+## What Was Delivered (Phase 11E)
+
+- **Help menu expanded** — 5 items: Help, Support, Tell a Friend, Check for Updates, separator, About QMS Desktop
+- **About dialog** — professional modal: app identity, live license details (status, customer, plan, expiry), signed-in user, copyright; no secrets
+- **Help dialog** — scrollable modal: getting started steps, modules overview, backup reminder, support contact
+- **Support dialog** — support email, version, license status, customer name, "Copy Support Info" button (clipboard); no secrets
+- **Tell a Friend** — copyable share message modal; no tracking, no internet
+- **Check for Updates** — version display + manual update instructions; no auto-downloader
+- **Toggle Sidebar** (View menu) — now works via shared Zustand `useUiStore`; AppLayout reads from store instead of local state
+- **Settings auth-gate** — Tools → Settings starts disabled; enabled after login; disabled on logout
+- **Ctrl+R** — Reload menu item now has Ctrl+R keyboard shortcut
+- **View → Toggle Sidebar** — added as first item in View menu
+- **Fullscreen** — F11 and View → Toggle Full Screen work; no kiosk mode; user can always exit
+- **Build** — TypeScript ✓ (1647 modules, 2.48s), Rust cargo check ✓ (47.48s), Tauri release ✓ (1 pass, 2m 11s), MSI 3.51 MB, NSIS 2.13 MB
+
+## Build Artifact Paths
+
+| Artifact | Path | Size |
+|---|---|---|
+| MSI (test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase11e-menu-help-updates-test.msi` | 3.51 MB |
+| NSIS (test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase11e-menu-help-updates-test-setup.exe` | 2.13 MB |
 
 ## What Was Delivered (Phase 11D)
 
@@ -124,3 +146,4 @@
 | License/Sidebar/Nav Shell | 11B | 0 | ✓ Done |
 | Reports/Print/Export Fixes | 11C | 0 | ✓ Done |
 | Backup/Restore/Import Flow | 11D | +1 | ✓ Done |
+| Desktop Menu/Help/About/Support | 11E | 0 | ✓ Done |
