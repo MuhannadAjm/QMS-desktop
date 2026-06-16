@@ -274,13 +274,15 @@ pub fn validate_backup_path(
     Ok(canonical_dest.to_string_lossy().to_string())
 }
 
-/// Restore a backup. Copies data.db and uploads from a backup folder back into AppData.
-/// CAUTION: This overwrites current data. App should be restarted after restore.
+/// Restore a backup. Copies data.db, uploads, and settings from a backup folder back into AppData.
+/// Before restoring, automatically creates a safety backup of current data.
+/// If preserve_license is true (default), current license.json is NOT replaced.
 /// Admin only.
 #[tauri::command]
 pub fn restore_local_backup(
     current_user_id: i64,
     backup_path: String,
+    preserve_license: bool,
 ) -> Result<String, String> {
     permissions::require_admin(current_user_id)?;
     let backup_dir = PathBuf::from(&backup_path);
@@ -292,41 +294,109 @@ pub fn restore_local_backup(
     let backup_db = backup_dir.join("data.db");
     if !backup_db.exists() {
         return Err(
-            "Backup folder does not contain data.db. This may not be a valid QMS backup."
+            "The selected folder does not contain data.db. This may not be a valid QMS backup."
                 .to_string(),
         );
     }
 
     let paths = storage::get_storage_paths()?;
 
-    // Restore data.db
+    // Step 1: Create safety backup before restore — abort if this fails.
+    let safety_name = format!("QMS-SafetyBackup-{}", backup_timestamp());
+    let safety_dir = paths.backups.join(&safety_name);
+    std::fs::create_dir_all(&safety_dir)
+        .map_err(|e| format!("Safety backup failed (cannot create directory): {}. Restore aborted.", e))?;
+
+    if paths.database.exists() {
+        std::fs::copy(&paths.database, safety_dir.join("data.db"))
+            .map_err(|e| format!("Safety backup failed (database): {}. Restore aborted.", e))?;
+    }
+    if paths.settings.exists() {
+        std::fs::copy(&paths.settings, safety_dir.join("settings.json"))
+            .map_err(|e| format!("Safety backup failed (settings): {}. Restore aborted.", e))?;
+    }
+    if paths.license.exists() {
+        std::fs::copy(&paths.license, safety_dir.join("license.json"))
+            .map_err(|e| format!("Safety backup failed (license): {}. Restore aborted.", e))?;
+    }
+    let uploads_src = paths.root.join("uploads");
+    if uploads_src.exists() {
+        copy_dir_recursive(&uploads_src, &safety_dir.join("uploads"))
+            .map_err(|e| format!("Safety backup failed (uploads): {}. Restore aborted.", e))?;
+    }
+
+    // Step 2: Restore data.db.
     std::fs::copy(&backup_db, &paths.database)
         .map_err(|e| format!("Failed to restore database: {}", e))?;
 
-    // Restore settings.json if present in backup
+    // Step 3: Restore settings.json if present in backup.
     let backup_settings = backup_dir.join("settings.json");
     if backup_settings.exists() {
         std::fs::copy(&backup_settings, &paths.settings)
             .map_err(|e| format!("Failed to restore settings.json: {}", e))?;
     }
 
-    // Restore license.json if present in backup
-    let backup_license = backup_dir.join("license.json");
-    if backup_license.exists() {
-        std::fs::copy(&backup_license, &paths.license)
-            .map_err(|e| format!("Failed to restore license.json: {}", e))?;
+    // Step 4: Restore license.json only when explicitly requested.
+    if !preserve_license {
+        let backup_license = backup_dir.join("license.json");
+        if backup_license.exists() {
+            std::fs::copy(&backup_license, &paths.license)
+                .map_err(|e| format!("Failed to restore license.json: {}", e))?;
+        }
     }
 
-    // Restore uploads directory if present in backup
+    // Step 5: Restore uploads directory if present in backup.
     let backup_uploads = backup_dir.join("uploads");
     if backup_uploads.exists() {
         let uploads_dst = paths.root.join("uploads");
         copy_dir_recursive(&backup_uploads, &uploads_dst)?;
     }
 
-    Ok(
-        "Restore completed. Please restart the application to ensure \
-         all data is loaded correctly from the restored database."
-            .to_string(),
-    )
+    Ok(format!(
+        "Restore completed successfully. A safety backup of your previous data was saved as \
+         '{}'. Please restart the application to load the restored data.",
+        safety_name
+    ))
+}
+
+/// Validate a backup folder for import (checks existence, structure, and that it is not AppData).
+/// Admin only.
+#[tauri::command]
+pub fn validate_import_backup(
+    current_user_id: i64,
+    backup_path: String,
+) -> Result<String, String> {
+    permissions::require_admin(current_user_id)?;
+    let path = PathBuf::from(&backup_path);
+
+    if !path.exists() {
+        return Err("The selected path does not exist.".to_string());
+    }
+    if !path.is_dir() {
+        return Err("The selected path is not a folder.".to_string());
+    }
+
+    // Must contain data.db to be a valid QMS backup
+    if !path.join("data.db").exists() {
+        return Err(
+            "The selected folder does not contain data.db. \
+             This does not appear to be a valid QMS backup folder."
+                .to_string(),
+        );
+    }
+
+    // Prevent importing from inside the AppData directory itself
+    let paths = storage::get_storage_paths()?;
+    let canonical_src = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+    let canonical_root = std::fs::canonicalize(&paths.root).unwrap_or_else(|_| paths.root.clone());
+    if canonical_src.starts_with(&canonical_root) {
+        return Err(
+            "The selected folder is inside the QMSDesktop data directory. \
+             Use the Restore button on a backup listed below instead."
+                .to_string(),
+        );
+    }
+
+    // Return canonical path for display
+    Ok(canonical_src.to_string_lossy().to_string())
 }

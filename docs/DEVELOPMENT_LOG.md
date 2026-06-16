@@ -4,6 +4,27 @@ Chronological record of phases completed.
 
 ---
 
+## Phase 11D — Backup, Restore, Import, and Data Transfer Flow
+**Date:** 2026-06-16 | **Branch:** `phase-11d-backup-restore-import`
+
+### Files Changed
+- `src-tauri/src/commands/backup.rs` — `restore_local_backup`: added `preserve_license` param and automatic safety backup before restore; new `validate_import_backup` command for external folder validation
+- `src-tauri/src/commands/mod.rs` — exported `validate_import_backup`
+- `src-tauri/src/lib.rs` — added "Restore Backup…" to File menu; enable/disable toggled with auth state
+- `src/services/backupService.ts` — `restoreLocalBackup` updated with `preserveLicense` param; `validateImportBackup` wrapper added
+- `src/App.tsx` — `MenuListener` handles `restore-backup` menu action → navigate to `/backup`
+- `src/pages/Backup.tsx` — full rewrite: Create / Import Backup File / Open Folder / Backup History with per-entry Restore; safety backup notice in modal; license preservation checkbox
+
+### Key Behaviors
+- **Safety backup**: automatically created before every restore; if it fails, restore is aborted
+- **License preservation**: `preserve_license = true` by default; user must explicitly uncheck to restore license.json
+- **Import flow**: Admin browses to any external backup folder via OS picker; validated with `validate_import_backup` before showing confirmation modal
+- **File menu**: "Restore Backup…" added alongside Create/Open; all three disabled before login
+- **Permissions**: All backup actions remain Admin-only in Rust backend
+- **Build**: TypeScript ✓ (1641 modules, 2.60s), Rust ✓ (cargo check 5.06s), Tauri release ✓ (1 pass), MSI 3.51 MB, NSIS 2.12 MB
+
+---
+
 ## Phase 11C — Reports, Print, Export, and Empty State Fixes (2026-06-16)
 
 - **Reports.tsx:** Button renamed from "Run Report" to "Generate Report". Added `fileSlug` field per report definition. Date range validation (dateFrom > dateTo shows inline error, blocks fetch). Empty state guard: Print/Export buttons disabled (`opacity-40`) when 0 rows; clicking while empty shows alert. Professional empty state: `FileX` icon + "No records found" / "Adjust filters or create records first". Role visibility confirmed already filtering correctly by `allowedRoles`.

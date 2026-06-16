@@ -391,6 +391,34 @@ Run the app and open the License page — the fingerprint is displayed under "Ha
 
 ---
 
+## Restore / Import Backup (Phase 11D)
+
+### Restore from backup history
+1. Log in as Admin → navigate to Backup & Restore page
+2. In the **Backup History** list, click **Restore** next to the desired backup
+3. Review the confirmation modal — a safety backup will be created automatically before restore begins
+4. Leave "Keep current device license" checked (default) unless you intentionally want to restore the license
+5. Type `RESTORE` and click **Restore Now**
+6. After success, close and reopen QMS Desktop to load the restored data
+
+### Import backup from external location
+1. Log in as Admin → navigate to Backup & Restore page
+2. Click **Import Backup File…**
+3. Select the QMS backup folder (must contain `data.db`)
+4. If valid, the confirmation modal opens — same flow as Restore from history
+5. Restart QMS Desktop after success
+
+### Safety backup
+- Created automatically before every restore as `QMS-SafetyBackup-YYYYMMDD_HHmmss` in the backups folder
+- If the safety backup fails, the restore is aborted — no data is changed
+- Safety backups appear in the Backup History list
+
+### File → Restore Backup… menu item
+- Navigates to the Backup & Restore page (same as clicking File → Create Backup)
+- Disabled before login; enabled after login; Admin-only actions enforced by the page
+
+---
+
 ## Backup Troubleshooting
 
 ### "Backup folder does not exist"

@@ -2,10 +2,30 @@
 
 | Field | Value |
 |---|---|
-| Phase | **Phase 11C — Reports, Print, Export, and Empty State Fixes** |
+| Phase | **Phase 11D — Backup, Restore, Import, and Data Transfer Flow** |
 | Status | **Completed** |
 | Date | 2026-06-16 |
-| Next Phase | Phase 11D — TBD |
+| Next Phase | Phase 11E — TBD |
+
+## What Was Delivered (Phase 11D)
+
+- **Backup page rewritten** — Create Backup, Import Backup File, Open Backup Folder, Backup History with Restore per entry
+- **Safety backup before restore** — automatic safety backup created before every restore; abort if it fails
+- **License preservation** — `preserve_license = true` by default; checkbox in modal to optionally restore license.json
+- **Import Backup File** — Admin can browse OS folder picker to any external backup folder; validated before showing confirm modal
+- **Restore confirmation modal** — serious warnings, bullet consequences, license checkbox, type RESTORE to enable
+- **Restart Required banner** — shown after successful restore until app is closed
+- **File menu: Restore Backup…** — added to File menu, enabled only after login
+- **Permissions** — all actions Admin-only in Rust backend; non-Admin sees amber notice, no action buttons
+- **`validate_import_backup` command** — new Tauri command (Admin-only) validates external backup folder
+- **Build** — TypeScript ✓ (1641 modules, 2.60s), Rust cargo check ✓ (5.06s), Rust release ✓ (1 pass), MSI 3.51 MB, NSIS 2.12 MB
+
+## Build Artifact Paths
+
+| Artifact | Path | Size |
+|---|---|---|
+| MSI (test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase11d-backup-restore-test.msi` | 3.51 MB |
+| NSIS (test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase11d-backup-restore-test-setup.exe` | 2.12 MB |
 
 ## What Was Delivered (Phase 11C)
 
@@ -103,3 +123,4 @@
 | Auth/Users/Profile Cleanup | 11A | +2 | ✓ Done |
 | License/Sidebar/Nav Shell | 11B | 0 | ✓ Done |
 | Reports/Print/Export Fixes | 11C | 0 | ✓ Done |
+| Backup/Restore/Import Flow | 11D | +1 | ✓ Done |

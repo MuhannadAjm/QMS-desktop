@@ -29,6 +29,14 @@ export function validateBackupPath(
 export function restoreLocalBackup(
   currentUserId: number,
   backupPath: string,
+  preserveLicense: boolean,
 ): Promise<string> {
-  return invoke('restore_local_backup', { currentUserId, backupPath });
+  return invoke('restore_local_backup', { currentUserId, backupPath, preserveLicense });
+}
+
+export function validateImportBackup(
+  currentUserId: number,
+  backupPath: string,
+): Promise<string> {
+  return invoke('validate_import_backup', { currentUserId, backupPath });
 }

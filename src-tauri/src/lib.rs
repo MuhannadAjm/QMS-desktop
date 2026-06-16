@@ -26,6 +26,7 @@ use commands::{
     create_document,
     create_first_admin,
     create_local_backup,
+    validate_import_backup,
     create_nc_from_audit_finding,
     create_nc_from_complaint,
     create_nc_from_risk,
@@ -117,12 +118,14 @@ use tauri::{Emitter, Listener, Manager};
 
 fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> {
     // File menu — backup items start disabled; enabled after user logs in via auth-changed event
-    let create_backup_item = MenuItem::with_id(app, "create-backup", "Create Backup", false, None::<&str>)?;
-    let open_backups_item  = MenuItem::with_id(app, "open-backups-folder", "Open Backup Folder", false, None::<&str>)?;
-    let sep_file           = PredefinedMenuItem::separator(app)?;
-    let quit_item          = MenuItem::with_id(app, "quit", "Exit", true, None::<&str>)?;
+    let create_backup_item  = MenuItem::with_id(app, "create-backup",        "Create Backup",     false, None::<&str>)?;
+    let restore_backup_item = MenuItem::with_id(app, "restore-backup",       "Restore Backup…",   false, None::<&str>)?;
+    let open_backups_item   = MenuItem::with_id(app, "open-backups-folder",  "Open Backup Folder", false, None::<&str>)?;
+    let sep_file            = PredefinedMenuItem::separator(app)?;
+    let quit_item           = MenuItem::with_id(app, "quit", "Exit", true, None::<&str>)?;
     let file_menu = Submenu::with_items(app, "File", true, &[
         &create_backup_item,
+        &restore_backup_item,
         &open_backups_item,
         &sep_file,
         &quit_item,
@@ -174,7 +177,7 @@ pub fn run() {
                 let authenticated: bool =
                     serde_json::from_str(event.payload()).unwrap_or(false);
                 if let Some(menu) = h.menu() {
-                    for id in ["create-backup", "open-backups-folder"] {
+                    for id in ["create-backup", "restore-backup", "open-backups-folder"] {
                         if let Some(item) = menu.get(id) {
                             if let tauri::menu::MenuItemKind::MenuItem(mi) = item {
                                 mi.set_enabled(authenticated).ok();
@@ -307,6 +310,7 @@ pub fn run() {
             open_backups_folder,
             validate_backup_path,
             restore_local_backup,
+            validate_import_backup,
             get_hardware_fingerprint,
             get_license_status,
             get_license_details,

@@ -48,8 +48,8 @@ function MenuListener() {
           );
           break;
         case 'create-backup':
+        case 'restore-backup':
         case 'open-backups-folder':
-          // Guard: only navigate if user is authenticated
           if (isAuthenticated) navigate('/backup');
           break;
       }

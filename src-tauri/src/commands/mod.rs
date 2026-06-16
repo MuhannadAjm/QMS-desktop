@@ -39,7 +39,7 @@ pub use documents::{
 };
 pub use backup::{
     create_local_backup, get_backup_status, open_backups_folder,
-    restore_local_backup, validate_backup_path,
+    restore_local_backup, validate_backup_path, validate_import_backup,
 };
 pub use dashboard::{
     get_dashboard_high_risks, get_dashboard_open_ncs, get_dashboard_overdue_capas,

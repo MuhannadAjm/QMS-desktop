@@ -9,7 +9,11 @@ import {
   CheckCircle2,
   Clock,
   Shield,
+  Upload,
+  Info,
+  TriangleAlert,
 } from 'lucide-react';
+import { open } from '@tauri-apps/plugin-dialog';
 import Card from '../components/ui/Card';
 import { useAuthStore } from '../stores/authStore';
 import {
@@ -17,6 +21,7 @@ import {
   createLocalBackup,
   openBackupsFolder,
   restoreLocalBackup,
+  validateImportBackup,
 } from '../services/backupService';
 import type { BackupStatus, BackupEntry } from '../types/backup';
 
@@ -31,6 +36,134 @@ function fmtSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+// ── Restore Confirmation Modal ────────────────────────────────────────────────
+
+interface RestoreModalProps {
+  entry: BackupEntry | null;
+  importPath: string | null;
+  onCancel: () => void;
+  onConfirm: (preserveLicense: boolean) => void;
+  isRestoring: boolean;
+  message: { type: 'success' | 'error'; text: string } | null;
+}
+
+function RestoreModal({ entry, importPath, onCancel, onConfirm, isRestoring, message }: RestoreModalProps) {
+  const [confirmText, setConfirmText] = useState('');
+  const [preserveLicense, setPreserveLicense] = useState(true);
+  const isImport = !!importPath;
+  const displayName = entry?.name ?? (importPath ? importPath.split(/[\\/]/).pop() : '');
+  const canConfirm = confirmText === 'RESTORE' && !isRestoring;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 p-6">
+
+        {/* Header */}
+        <div className="flex items-start gap-3 mb-5">
+          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+            <TriangleAlert size={18} className="text-red-600" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-[#1A202C]">
+              {isImport ? 'Import & Restore Backup' : 'Restore Backup'}
+            </h2>
+            <p className="text-xs text-[#64748B] mt-0.5 font-mono truncate max-w-xs">{displayName}</p>
+          </div>
+        </div>
+
+        {/* Warning box */}
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 space-y-1.5">
+          <p className="text-xs font-semibold text-red-800 flex items-center gap-1.5">
+            <AlertTriangle size={12} /> This action will replace your current data
+          </p>
+          <ul className="text-xs text-red-700 space-y-1 list-disc list-inside">
+            <li>All records created after this backup was made will be lost.</li>
+            <li>Uploaded files may be replaced with those from the backup.</li>
+            <li>A safety backup of your current data will be created first.</li>
+            <li>Only an Administrator should perform a restore.</li>
+          </ul>
+        </div>
+
+        {/* Safety backup info */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-start gap-2">
+          <Info size={13} className="text-blue-600 mt-0.5 shrink-0" />
+          <p className="text-xs text-blue-700">
+            A safety backup of your current data will be created automatically before restore begins.
+            If the safety backup fails, the restore will be aborted.
+          </p>
+        </div>
+
+        {/* License preservation option */}
+        <div className="border border-[#E2E8F0] rounded-lg p-3 mb-4">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={preserveLicense}
+              onChange={e => setPreserveLicense(e.target.checked)}
+              className="mt-0.5 accent-[#1E3A5F]"
+            />
+            <div>
+              <p className="text-xs font-semibold text-[#1A202C]">Keep current device license (recommended)</p>
+              <p className="text-xs text-[#64748B] mt-0.5">
+                Your license.json will not be replaced. Uncheck only if you intentionally want to restore the license from this backup.
+              </p>
+            </div>
+          </label>
+        </div>
+
+        {/* Confirm input */}
+        <div className="mb-4">
+          <label className="block text-xs font-medium text-[#64748B] mb-1.5">
+            Type <strong className="text-[#1A202C]">RESTORE</strong> to confirm
+          </label>
+          <input
+            type="text"
+            value={confirmText}
+            onChange={e => setConfirmText(e.target.value)}
+            placeholder="RESTORE"
+            className="w-full h-9 px-3 text-sm border border-[#E2E8F0] rounded-md focus:outline-none focus:ring-2 focus:ring-red-400"
+          />
+        </div>
+
+        {/* Result message */}
+        {message && (
+          <div className={`mb-4 p-3 rounded-md text-xs flex items-start gap-2 ${
+            message.type === 'success'
+              ? 'bg-green-50 border border-green-200 text-green-800'
+              : 'bg-red-50 border border-red-200 text-red-700'
+          }`}>
+            {message.type === 'success'
+              ? <CheckCircle2 size={12} className="mt-0.5 shrink-0" />
+              : <AlertTriangle size={12} className="mt-0.5 shrink-0" />}
+            {message.text}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex gap-2 justify-end">
+          <button
+            onClick={onCancel}
+            disabled={isRestoring}
+            className="px-4 py-2 text-sm font-medium text-[#64748B] border border-[#E2E8F0] rounded-md hover:bg-[#F4F6F9] transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onConfirm(preserveLicense)}
+            disabled={!canConfirm}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <RotateCcw size={13} />
+            {isRestoring ? 'Restoring…' : 'Restore Now'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Backup Page ───────────────────────────────────────────────────────────────
+
 export default function Backup() {
   const { user } = useAuthStore();
   const role = user?.role ?? 'Viewer';
@@ -44,10 +177,19 @@ export default function Backup() {
   const [creating, setCreating] = useState(false);
   const [createMessage, setCreateMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Restore from backup list
   const [restoreTarget, setRestoreTarget] = useState<BackupEntry | null>(null);
-  const [restoreConfirmText, setRestoreConfirmText] = useState('');
+  // Restore from import (external folder)
+  const [importPath, setImportPath] = useState<string | null>(null);
+  const [importValidating, setImportValidating] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+
   const [restoring, setRestoring] = useState(false);
   const [restoreMessage, setRestoreMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  // Shown persistently after a successful restore (prompts restart)
+  const [restoreSuccessful, setRestoreSuccessful] = useState(false);
+
+  const showModal = restoreTarget !== null || importPath !== null;
 
   const loadStatus = async () => {
     setLoadingStatus(true);
@@ -68,8 +210,8 @@ export default function Backup() {
     setCreating(true);
     setCreateMessage(null);
     try {
-      const msg = await createLocalBackup(currentUserId);
-      setCreateMessage({ type: 'success', text: msg });
+      await createLocalBackup(currentUserId);
+      setCreateMessage({ type: 'success', text: 'Backup created successfully.' });
       await loadStatus();
     } catch (e) {
       setCreateMessage({ type: 'error', text: String(e) });
@@ -88,19 +230,38 @@ export default function Backup() {
 
   const handleRestoreClick = (entry: BackupEntry) => {
     setRestoreTarget(entry);
-    setRestoreConfirmText('');
+    setImportPath(null);
     setRestoreMessage(null);
   };
 
-  const handleRestoreConfirm = async () => {
-    if (!restoreTarget) return;
+  const handleImportClick = async () => {
+    setImportError(null);
+    setImportValidating(true);
+    try {
+      const selected = await open({ directory: true, multiple: false, title: 'Select QMS Backup Folder' });
+      if (!selected) { setImportValidating(false); return; }
+      const folderPath = Array.isArray(selected) ? selected[0] : selected;
+      const canonical = await validateImportBackup(currentUserId, folderPath);
+      setImportPath(canonical);
+      setRestoreTarget(null);
+      setRestoreMessage(null);
+    } catch (e) {
+      setImportError(String(e));
+    } finally {
+      setImportValidating(false);
+    }
+  };
+
+  const handleModalConfirm = async (preserveLicense: boolean) => {
+    const path = restoreTarget?.full_path ?? importPath;
+    if (!path) return;
     setRestoring(true);
     setRestoreMessage(null);
     try {
-      const msg = await restoreLocalBackup(currentUserId, restoreTarget.full_path);
+      const msg = await restoreLocalBackup(currentUserId, path, preserveLicense);
       setRestoreMessage({ type: 'success', text: msg });
-      setRestoreTarget(null);
-      setRestoreConfirmText('');
+      setRestoreSuccessful(true);
+      await loadStatus();
     } catch (e) {
       setRestoreMessage({ type: 'error', text: String(e) });
     } finally {
@@ -108,15 +269,23 @@ export default function Backup() {
     }
   };
 
+  const handleModalCancel = () => {
+    if (restoring) return;
+    setRestoreTarget(null);
+    setImportPath(null);
+    setRestoreMessage(null);
+  };
+
   return (
     <div className="p-6 space-y-6">
+
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <HardDrive size={20} className="text-[#1E3A5F]" />
           <div>
             <h1 className="text-lg font-bold text-[#1E3A5F]">Backup &amp; Restore</h1>
-            <p className="text-xs text-gray-500">Local backup of database, uploads, and settings</p>
+            <p className="text-xs text-[#64748B]">Local backup of database, uploads, and settings</p>
           </div>
         </div>
         <button
@@ -128,6 +297,19 @@ export default function Backup() {
           Refresh
         </button>
       </div>
+
+      {/* Restart required banner (shown after successful restore) */}
+      {restoreSuccessful && (
+        <div className="bg-amber-50 border border-amber-300 rounded-lg p-4 flex items-start gap-3">
+          <AlertTriangle size={16} className="text-amber-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-amber-800">Restart Required</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Data was restored successfully. Please close and reopen QMS Desktop to load the restored data.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Admin gate notice */}
       {!isAdmin && (
@@ -142,7 +324,7 @@ export default function Backup() {
         </div>
       )}
 
-      {/* Status card */}
+      {/* Status + actions card */}
       {loadingStatus ? (
         <Card>
           <div className="h-24 flex items-center justify-center text-sm text-[#64748B]">
@@ -153,7 +335,8 @@ export default function Backup() {
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{statusError}</div>
       ) : status && (
         <Card>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Status summary */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-5">
             <div>
               <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-1">Total Backups</p>
               <p className="text-2xl font-bold text-[#1E3A5F]">{status.available_backups.length}</p>
@@ -167,71 +350,124 @@ export default function Backup() {
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-1">Backup Folder</p>
-              <p className="text-xs text-[#64748B] break-all font-mono">{status.backups_dir}</p>
+              <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-1">Database</p>
+              <p className="text-sm font-semibold text-[#1A202C]">{fmtSize(status.database_size_bytes)}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-1">Uploads</p>
+              <p className="text-sm font-semibold text-[#1A202C]">{fmtSize(status.uploads_size_bytes)}</p>
             </div>
           </div>
 
-          {isAdmin && (
-            <div className="flex flex-wrap gap-2 mt-5 pt-4 border-t border-[#E2E8F0]">
-              <button
-                onClick={handleCreate}
-                disabled={creating}
-                className="flex items-center gap-1.5 px-4 py-2 bg-[#1E3A5F] text-white text-sm font-medium rounded-md hover:bg-[#2E5080] transition-colors disabled:opacity-50"
-              >
-                <Plus size={14} />
-                {creating ? 'Creating backup…' : 'Create Backup Now'}
-              </button>
-              <button
-                onClick={handleOpenFolder}
-                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-[#1E3A5F] border border-[#E2E8F0] rounded-md hover:bg-[#F4F6F9] transition-colors"
-              >
-                <FolderOpen size={14} />
-                Open Folder
-              </button>
-            </div>
-          )}
+          <div className="text-xs text-[#94A3B8] font-mono mb-5">
+            Backup folder: {status.backups_dir}
+          </div>
 
-          {createMessage && (
-            <div className={`mt-3 p-3 rounded-md text-sm flex items-start gap-2 ${
-              createMessage.type === 'success'
-                ? 'bg-green-50 border border-green-200 text-green-800'
-                : 'bg-red-50 border border-red-200 text-red-700'
-            }`}>
-              {createMessage.type === 'success'
-                ? <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
-                : <AlertTriangle size={14} className="mt-0.5 shrink-0" />}
-              {createMessage.text}
+          {/* Action buttons — Admin only */}
+          {isAdmin && (
+            <div className="border-t border-[#E2E8F0] pt-4">
+              <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-3">Actions</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={handleCreate}
+                  disabled={creating}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-[#1E3A5F] text-white text-sm font-medium rounded-md hover:bg-[#2E5080] transition-colors disabled:opacity-50"
+                >
+                  <Plus size={14} />
+                  {creating ? 'Creating backup…' : 'Create Backup'}
+                </button>
+
+                <button
+                  onClick={handleImportClick}
+                  disabled={importValidating}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-[#1E3A5F] border border-[#E2E8F0] rounded-md hover:bg-[#F4F6F9] transition-colors disabled:opacity-50"
+                >
+                  <Upload size={14} />
+                  {importValidating ? 'Validating…' : 'Import Backup File…'}
+                </button>
+
+                <button
+                  onClick={handleOpenFolder}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-[#1E3A5F] border border-[#E2E8F0] rounded-md hover:bg-[#F4F6F9] transition-colors"
+                >
+                  <FolderOpen size={14} />
+                  Open Backup Folder
+                </button>
+              </div>
+
+              {importError && (
+                <div className="mt-3 p-3 rounded-md text-xs bg-red-50 border border-red-200 text-red-700 flex items-start gap-2">
+                  <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                  {importError}
+                </div>
+              )}
+
+              {createMessage && (
+                <div className={`mt-3 p-3 rounded-md text-sm flex items-start gap-2 ${
+                  createMessage.type === 'success'
+                    ? 'bg-green-50 border border-green-200 text-green-800'
+                    : 'bg-red-50 border border-red-200 text-red-700'
+                }`}>
+                  {createMessage.type === 'success'
+                    ? <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
+                    : <AlertTriangle size={14} className="mt-0.5 shrink-0" />}
+                  {createMessage.text}
+                </div>
+              )}
             </div>
           )}
         </Card>
       )}
 
-      {/* Backup list */}
+      {/* What is backed up — info card */}
+      <Card>
+        <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-3">Backup Contents</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {[
+            { name: 'data.db', desc: 'All QMS records (documents, CAPAs, risks, audits, etc.)' },
+            { name: 'uploads/', desc: 'All attached files for every module' },
+            { name: 'settings.json', desc: 'Company name, prefixes, and app settings' },
+            { name: 'license.json', desc: 'Device license token — preserved on restore by default' },
+          ].map(item => (
+            <div key={item.name} className="flex items-start gap-2">
+              <HardDrive size={13} className="text-[#1E3A5F] mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-semibold text-[#1A202C] font-mono">{item.name}</p>
+                <p className="text-xs text-[#64748B]">{item.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Backup history */}
       {status && status.available_backups.length > 0 && (
         <Card padding={false}>
-          <div className="px-4 py-3 border-b border-[#E2E8F0]">
+          <div className="px-4 py-3 border-b border-[#E2E8F0] flex items-center justify-between">
             <h2 className="text-sm font-semibold text-[#1A202C]">
-              Available Backups ({status.available_backups.length})
+              Backup History ({status.available_backups.length})
             </h2>
+            <p className="text-xs text-[#94A3B8]">Most recent first</p>
           </div>
           <div className="divide-y divide-[#F1F5F9]">
             {status.available_backups.map(b => (
               <div key={b.name} className="px-4 py-3 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3 min-w-0">
-                  <HardDrive size={16} className="text-[#64748B] shrink-0" />
+                  <HardDrive size={15} className="text-[#64748B] shrink-0" />
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-[#1A202C] font-mono truncate">{b.name}</p>
                     <p className="text-xs text-[#64748B] mt-0.5 flex items-center gap-1">
                       <Clock size={10} />
-                      {fmtDate(b.created_at)} &nbsp;·&nbsp; {fmtSize(b.size_bytes)}
+                      {b.created_at} &nbsp;·&nbsp; {fmtSize(b.size_bytes)}
                     </p>
                   </div>
                 </div>
                 {isAdmin && (
                   <button
                     onClick={() => handleRestoreClick(b)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 border border-amber-200 bg-amber-50 rounded-md hover:bg-amber-100 transition-colors shrink-0"
+                    disabled={restoreSuccessful}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 border border-amber-200 bg-amber-50 rounded-md hover:bg-amber-100 transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={restoreSuccessful ? 'Restart app before restoring again' : 'Restore this backup'}
                   >
                     <RotateCcw size={12} />
                     Restore
@@ -243,85 +479,31 @@ export default function Backup() {
         </Card>
       )}
 
+      {/* Empty backup state */}
       {status && status.available_backups.length === 0 && !loadingStatus && (
         <Card>
-          <div className="text-center py-6">
+          <div className="text-center py-8">
             <HardDrive size={32} className="mx-auto text-[#CBD5E1] mb-3" />
             <p className="text-sm font-medium text-[#64748B]">No backups found</p>
             <p className="text-xs text-[#94A3B8] mt-1">
               {isAdmin
                 ? 'Create your first backup using the button above.'
-                : 'No backups have been created yet.'}
+                : 'No backups have been created yet. Contact your Admin.'}
             </p>
           </div>
         </Card>
       )}
 
       {/* Restore confirmation modal */}
-      {restoreTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
-            <div className="flex items-start gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
-                <AlertTriangle size={18} className="text-red-600" />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-[#1A202C]">Restore Backup</h2>
-                <p className="text-xs text-[#64748B] mt-0.5">This will overwrite the current database.</p>
-              </div>
-            </div>
-
-            <div className="bg-[#FEF2F2] border border-red-200 rounded-lg p-3 mb-4 text-xs text-red-700 space-y-1">
-              <p><strong>Warning:</strong> All data created after this backup was made will be lost.</p>
-              <p>The application must be restarted after restore completes.</p>
-              <p className="font-mono text-[11px] mt-1 text-red-600">{restoreTarget.name}</p>
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-xs font-medium text-[#64748B] mb-1">
-                Type <strong>RESTORE</strong> to confirm
-              </label>
-              <input
-                type="text"
-                value={restoreConfirmText}
-                onChange={e => setRestoreConfirmText(e.target.value)}
-                placeholder="RESTORE"
-                className="w-full h-9 px-3 text-sm border border-[#E2E8F0] rounded-md focus:outline-none focus:ring-2 focus:ring-red-400"
-              />
-            </div>
-
-            {restoreMessage && (
-              <div className={`mb-3 p-3 rounded-md text-xs flex items-start gap-2 ${
-                restoreMessage.type === 'success'
-                  ? 'bg-green-50 border border-green-200 text-green-800'
-                  : 'bg-red-50 border border-red-200 text-red-700'
-              }`}>
-                {restoreMessage.type === 'success'
-                  ? <CheckCircle2 size={12} className="mt-0.5 shrink-0" />
-                  : <AlertTriangle size={12} className="mt-0.5 shrink-0" />}
-                {restoreMessage.text}
-              </div>
-            )}
-
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => { setRestoreTarget(null); setRestoreConfirmText(''); setRestoreMessage(null); }}
-                disabled={restoring}
-                className="px-4 py-2 text-sm font-medium text-[#64748B] border border-[#E2E8F0] rounded-md hover:bg-[#F4F6F9] transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleRestoreConfirm}
-                disabled={restoreConfirmText !== 'RESTORE' || restoring}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-40"
-              >
-                <RotateCcw size={13} />
-                {restoring ? 'Restoring…' : 'Restore'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {showModal && (
+        <RestoreModal
+          entry={restoreTarget}
+          importPath={importPath}
+          onCancel={handleModalCancel}
+          onConfirm={handleModalConfirm}
+          isRestoring={restoring}
+          message={restoreMessage}
+        />
       )}
     </div>
   );
