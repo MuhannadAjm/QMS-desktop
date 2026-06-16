@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment — NEVER commit
+.env
+.env.local
+.env.*.local
+
+# Tauri build artifacts
+src-tauri/target/
+
+# Tauri icon source (generated)
+src-tauri/source-icon.png
+
+# Editor
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

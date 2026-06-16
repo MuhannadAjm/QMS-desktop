@@ -1,18 +1,43 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseDiag } from '../lib/supabase';
+
+const DEV = import.meta.env.DEV;
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
-    if (err) setError(err.message);
+    setErrorCode(null);
+
+    const trimmedEmail = email.trim();
+
+    if (DEV) {
+      console.info('[LicenseAdmin] signInWithPassword attempt', {
+        email: trimmedEmail,
+        supabaseHost: supabaseDiag.urlHost,
+        origin: window.location.origin,
+      });
+    }
+
+    const { error: err } = await supabase.auth.signInWithPassword({
+      email: trimmedEmail,
+      password,
+    });
+
+    if (err) {
+      setError(err.message);
+      setErrorCode(err.code ?? err.name ?? null);
+      if (DEV) {
+        console.warn('[LicenseAdmin] auth error', { message: err.message, code: err.code, status: err.status });
+      }
+    }
     setBusy(false);
   };
 
@@ -45,7 +70,12 @@ export default function Login() {
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20"
           />
           {error && (
-            <p className="text-[12px] text-red-600">{error}</p>
+            <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 space-y-0.5">
+              <p className="text-[12px] text-red-700 font-medium">{error}</p>
+              {errorCode && (
+                <p className="text-[11px] text-red-500 font-mono">code: {errorCode}</p>
+              )}
+            </div>
           )}
           <button
             type="submit"
@@ -55,6 +85,23 @@ export default function Login() {
             {busy ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
+
+        {/* Dev-only diagnostic panel — stripped from production build */}
+        {DEV && (
+          <div className="mt-6 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2.5 space-y-1">
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Dev diagnostics</p>
+            <p className="text-[11px] font-mono text-slate-600">
+              Supabase host: <span className="text-slate-800">{supabaseDiag.urlHost}</span>
+            </p>
+            <p className="text-[11px] font-mono text-slate-600">
+              Anon key: <span className="text-slate-800">{supabaseDiag.keyPresent ? `${supabaseDiag.keyPrefix}… (loaded)` : 'MISSING'}</span>
+            </p>
+            <p className="text-[11px] font-mono text-slate-600">
+              Origin: <span className="text-slate-800">{window.location.origin}</span>
+            </p>
+            <p className="text-[10px] text-slate-400 mt-1">This panel is invisible in production builds.</p>
+          </div>
+        )}
       </div>
     </div>
   );

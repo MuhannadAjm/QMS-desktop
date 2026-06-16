@@ -32,6 +32,7 @@
 | 13 | Final QA Regression and Release Candidate Validation | No | No | COMPLETE |
 | 14 | Final Release Package and Delivery Preparation | No | No | COMPLETE |
 | 14B | Final Manual QA Fixes Before Release | Yes | No | COMPLETE |
+| 11X | Standalone License Admin Desktop App | Yes | No | COMPLETE |
 
 ---
 

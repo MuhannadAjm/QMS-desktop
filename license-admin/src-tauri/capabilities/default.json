@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schemas.tauri.app/v2/capabilities.json",
+  "identifier": "default",
+  "description": "Default permissions for QMS License Admin",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}
