@@ -12,6 +12,7 @@ import {
   Upload,
   Info,
   TriangleAlert,
+  Trash2,
 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import Card from '../components/ui/Card';
@@ -22,6 +23,7 @@ import {
   openBackupsFolder,
   restoreLocalBackup,
   validateImportBackup,
+  deleteBackup,
 } from '../services/backupService';
 import type { BackupStatus, BackupEntry } from '../types/backup';
 
@@ -162,6 +164,83 @@ function RestoreModal({ entry, importPath, onCancel, onConfirm, isRestoring, mes
   );
 }
 
+// ── Delete Confirmation Modal ─────────────────────────────────────────────────
+
+interface DeleteModalProps {
+  entry: BackupEntry;
+  onCancel: () => void;
+  onConfirm: () => void;
+  isDeleting: boolean;
+  error: string | null;
+}
+
+function DeleteModal({ entry, onCancel, onConfirm, isDeleting, error }: DeleteModalProps) {
+  const [confirmed, setConfirmed] = useState(false);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+        <div className="flex items-start gap-3 mb-5">
+          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+            <Trash2 size={18} className="text-red-600" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-[#1A202C]">Delete Backup</h2>
+            <p className="text-xs text-[#64748B] mt-0.5 font-mono truncate max-w-xs">{entry.name}</p>
+          </div>
+        </div>
+
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-5">
+          <p className="text-xs font-semibold text-red-800 flex items-center gap-1.5 mb-1">
+            <AlertTriangle size={12} /> This action is permanent
+          </p>
+          <p className="text-xs text-red-700">
+            The backup folder and all its contents (database, uploads, settings) will be permanently deleted.
+            This cannot be undone.
+          </p>
+        </div>
+
+        <label className="flex items-start gap-3 cursor-pointer mb-5">
+          <input
+            type="checkbox"
+            checked={confirmed}
+            onChange={e => setConfirmed(e.target.checked)}
+            className="mt-0.5 accent-red-600"
+          />
+          <p className="text-xs text-[#1A202C]">
+            I understand this will permanently delete this backup and it cannot be recovered.
+          </p>
+        </label>
+
+        {error && (
+          <div className="mb-4 p-3 rounded-md text-xs bg-red-50 border border-red-200 text-red-700 flex items-start gap-2">
+            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+            {error}
+          </div>
+        )}
+
+        <div className="flex gap-2 justify-end">
+          <button
+            onClick={onCancel}
+            disabled={isDeleting}
+            className="px-4 py-2 text-sm font-medium text-[#64748B] border border-[#E2E8F0] rounded-md hover:bg-[#F4F6F9] transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={!confirmed || isDeleting}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Trash2 size={13} />
+            {isDeleting ? 'Deleting…' : 'Delete Backup'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Backup Page ───────────────────────────────────────────────────────────────
 
 export default function Backup() {
@@ -188,6 +267,11 @@ export default function Backup() {
   const [restoreMessage, setRestoreMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   // Shown persistently after a successful restore (prompts restart)
   const [restoreSuccessful, setRestoreSuccessful] = useState(false);
+
+  // Delete backup
+  const [deleteTarget, setDeleteTarget] = useState<BackupEntry | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const showModal = restoreTarget !== null || importPath !== null;
 
@@ -274,6 +358,32 @@ export default function Backup() {
     setRestoreTarget(null);
     setImportPath(null);
     setRestoreMessage(null);
+  };
+
+  const handleDeleteClick = (entry: BackupEntry) => {
+    setDeleteTarget(entry);
+    setDeleteError(null);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteBackup(currentUserId, deleteTarget.full_path);
+      setDeleteTarget(null);
+      await loadStatus();
+    } catch (e) {
+      setDeleteError(String(e));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    if (deleting) return;
+    setDeleteTarget(null);
+    setDeleteError(null);
   };
 
   return (
@@ -463,15 +573,25 @@ export default function Backup() {
                   </div>
                 </div>
                 {isAdmin && (
-                  <button
-                    onClick={() => handleRestoreClick(b)}
-                    disabled={restoreSuccessful}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 border border-amber-200 bg-amber-50 rounded-md hover:bg-amber-100 transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-                    title={restoreSuccessful ? 'Restart app before restoring again' : 'Restore this backup'}
-                  >
-                    <RotateCcw size={12} />
-                    Restore
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => handleRestoreClick(b)}
+                      disabled={restoreSuccessful}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 border border-amber-200 bg-amber-50 rounded-md hover:bg-amber-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      title={restoreSuccessful ? 'Restart app before restoring again' : 'Restore this backup'}
+                    >
+                      <RotateCcw size={12} />
+                      Restore
+                    </button>
+                    <button
+                      onClick={() => handleDeleteClick(b)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 border border-red-200 bg-red-50 rounded-md hover:bg-red-100 transition-colors"
+                      title="Delete this backup"
+                    >
+                      <Trash2 size={12} />
+                      Delete
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
@@ -492,6 +612,17 @@ export default function Backup() {
             </p>
           </div>
         </Card>
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleteTarget && (
+        <DeleteModal
+          entry={deleteTarget}
+          onCancel={handleDeleteCancel}
+          onConfirm={handleDeleteConfirm}
+          isDeleting={deleting}
+          error={deleteError}
+        />
       )}
 
       {/* Restore confirmation modal */}

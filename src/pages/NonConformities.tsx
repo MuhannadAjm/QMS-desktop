@@ -658,13 +658,13 @@ export default function NonConformities() {
         <ModuleToolbar
           canEdit={canEdit}
           onNew={() => setShowCreate(true)}
-          onImport={() => setShowImport(true)}
           newLabel="+ New NC"
           exportOptions={[
             { label: 'Export CSV', onClick: () => exportNcsCSV(filtered) },
             { label: 'Export JSON', onClick: () => exportNcsJSON(filtered) },
             { label: 'Print Register', onClick: () => printNcRegister(filtered, companyName) },
           ]}
+          hasData={filtered.length > 0}
         />
       </div>
 

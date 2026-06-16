@@ -113,9 +113,9 @@ export default function Sidebar({
           <button
             onClick={onToggle}
             title="Expand sidebar"
-            className="text-slate-400 hover:text-white transition-colors p-1 rounded"
+            className="text-slate-300 hover:text-white transition-colors p-2 rounded hover:bg-white/10"
           >
-            <PanelLeftOpen size={14} strokeWidth={1.75} />
+            <PanelLeftOpen size={18} strokeWidth={2} />
           </button>
         </div>
       ) : (
@@ -133,9 +133,9 @@ export default function Sidebar({
             <button
               onClick={onToggle}
               title="Collapse sidebar"
-              className="text-slate-400 hover:text-white transition-colors p-1 rounded shrink-0 ml-1"
+              className="text-slate-300 hover:text-white transition-colors p-2 rounded hover:bg-white/10 shrink-0 ml-1"
             >
-              <PanelLeftClose size={14} strokeWidth={1.75} />
+              <PanelLeftClose size={18} strokeWidth={2} />
             </button>
           </div>
           <CompanyName />

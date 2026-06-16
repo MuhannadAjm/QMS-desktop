@@ -833,13 +833,13 @@ export default function Audits() {
         <ModuleToolbar
           canEdit={canEdit}
           onNew={() => setShowCreate(true)}
-          onImport={() => setShowImport(true)}
           newLabel="+ New Audit"
           exportOptions={[
             { label: 'Export CSV', onClick: () => exportAuditsCSV(filtered) },
             { label: 'Export JSON', onClick: () => exportAuditsJSON(filtered) },
             { label: 'Print Register', onClick: () => printAuditRegister(filtered, companyName) },
           ]}
+          hasData={filtered.length > 0}
         />
       </div>
 

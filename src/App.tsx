@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { HashRouter, useNavigate } from 'react-router-dom';
 import { listen, emit } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import AppRouter from './app/router';
 import { initializeAppStorage } from './services/appStorageService';
 import { checkFirstAdminExists } from './services/authService';
@@ -84,6 +85,51 @@ function MenuListener() {
       unlisten?.();
     };
   }, [navigate, isAuthenticated, toggleSidebar, openDialog]);
+
+  // Frontend keyboard shortcuts — supplement native menu accelerators which can
+  // miss keypresses when the WebView does not have focus on the menu bar.
+  useEffect(() => {
+    async function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'F11') {
+        e.preventDefault();
+        try {
+          const win = getCurrentWindow();
+          const isFs = await win.isFullscreen();
+          await win.setFullscreen(!isFs);
+        } catch {}
+        return;
+      }
+
+      if (e.ctrlKey) {
+        if (e.key === '=' || e.key === '+') {
+          e.preventDefault();
+          const z = parseFloat(document.documentElement.style.zoom || '1');
+          document.documentElement.style.zoom = Math.min(z + 0.1, 2.0).toFixed(1);
+          return;
+        }
+        if (e.key === '-') {
+          e.preventDefault();
+          const z = parseFloat(document.documentElement.style.zoom || '1');
+          document.documentElement.style.zoom = Math.max(z - 0.1, 0.5).toFixed(1);
+          return;
+        }
+        if (e.key === '0') {
+          e.preventDefault();
+          document.documentElement.style.zoom = '1';
+          return;
+        }
+        if (e.key === 'r' || e.key === 'R') {
+          const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+          if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+          e.preventDefault();
+          window.location.reload();
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   return null;
 }

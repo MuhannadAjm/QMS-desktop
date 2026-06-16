@@ -38,7 +38,7 @@ pub use documents::{
     update_document,
 };
 pub use backup::{
-    create_local_backup, get_backup_status, open_backups_folder,
+    create_local_backup, delete_backup, get_backup_status, open_backups_folder,
     restore_local_backup, validate_backup_path, validate_import_backup,
 };
 pub use dashboard::{

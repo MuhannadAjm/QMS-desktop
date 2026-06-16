@@ -2,10 +2,62 @@
 
 | Field | Value |
 |---|---|
-| Phase | **Phase 14 — Final Release Package and Delivery Preparation** |
+| Phase | **Phase 14B — Final Manual QA Fixes Before Release** |
 | Status | **Completed** |
 | Date | 2026-06-16 |
 | Next Phase | — (v1.0.0 release complete) |
+
+## What Was Delivered (Phase 14B)
+
+- **Part A — Export guards** — `hasData` prop added to `ModuleToolbar`; Export dropdown disabled with tooltip when filtered list is empty; all 6 module pages updated
+- **Part B — Module Print fixed** — All 6 module print functions (`printDocumentRegister`, `printCapaRegister`, `printRiskRegister`, `printComplaintRegister`, `printAuditRegister`, `printNcRegister`) converted from broken `window.open()` to DOM injection pattern; shared `injectAndPrint` helper added; Print button guarded by `hasData`
+- **Part C — Import buttons hidden** — `onImport` prop removed from all 6 module toolbar calls; Import button no longer appears on any module page
+- **Part D — Keyboard shortcuts** — Frontend `keydown` listener added in `App.tsx` for F11, Ctrl+=, Ctrl+-, Ctrl+0, Ctrl+R; supplements native menu bar accelerators for reliable operation
+- **Part E — Sidebar toggle improved** — Toggle buttons enlarged (size 14→18, strokeWidth 1.75→2), brighter contrast (`slate-400`→`slate-300`), larger click target (`p-1`→`p-2`), hover background highlight
+- **Part F — Native menu bar styling** — Documented as OS limitation: Win32 native menu bar styling is controlled by Windows and cannot be modified via WebView2/CSS
+- **Part G — Backup delete** — New `delete_backup` Rust command (Admin-only, path safety validation); `deleteBackup` in `backupService.ts`; Delete button per backup history entry (Admin-only); `DeleteModal` with checkbox confirmation
+- **Part H — Installer EULA checkbox** — Documented as WiX limitation: `LicenseAgreementDlg` uses radio button (not checkbox); equivalent acceptance
+- **Part I — Build** — TypeScript ✓ (1650 modules), `cargo check` ✓, Tauri release ✓ (1m 43s); artifacts copied to `test-builds/`
+
+## Build Artifact Paths
+
+| Artifact | Path | Size |
+|---|---|---|
+| MSI (Phase 14B test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase14b-final-manual-fixes-test.msi` | 3.51 MB |
+| NSIS (Phase 14B test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase14b-final-manual-fixes-test-setup.exe` | 2.13 MB |
+
+## Module Table (Updated Through Phase 14B)
+
+| Module | Phase | Commands | Status |
+|---|---|---|---|
+| Foundation / DB | 1–2 | — | ✓ Done |
+| Auth / Users / Settings | 3 | 8 | ✓ Done |
+| Documents | 4 | 9 | ✓ Done |
+| CAPA | 5 | 9 | ✓ Done |
+| Risks | 6 | 9+2 | ✓ Done |
+| Complaints | 6 | 9+2 | ✓ Done |
+| Audits | 7 | 13 | ✓ Done |
+| Non-Conformities | 7 | 10 | ✓ Done |
+| Dashboard | 8 | 5 | ✓ Done |
+| Reports | 8 | 6 | ✓ Done |
+| Backup | 8 | 5+1 | ✓ Done |
+| Cross-Module Links | 8B | 4 | ✓ Done |
+| License Engine | 9A | 7 | ✓ Done |
+| Online Activation | 9B | 2 | ✓ Done |
+| Installer / Packaging | 9C | 0 | ✓ Done |
+| License RSA Fix + Menu + Icon | 10B | 0 | ✓ Done |
+| Auth/Users/Profile Cleanup | 11A | +2 | ✓ Done |
+| License/Sidebar/Nav Shell | 11B | 0 | ✓ Done |
+| Reports/Print/Export Fixes | 11C | 0 | ✓ Done |
+| Backup/Restore/Import Flow | 11D | +1 | ✓ Done |
+| Desktop Menu/Help/About/Support | 11E | 0 | ✓ Done |
+| Installer EULA/Icon/Branding | 11F | 0 | ✓ Done |
+| Security Hardening Review | 12 | 0 | ✓ Done |
+| Final QA Regression | 13 | 0 | ✓ Done |
+| Final Release Package | 14 | 0 | ✓ Done |
+| Final Manual QA Fixes | 14B | +1 | ✓ Done |
+
+---
 
 ## What Was Delivered (Phase 14)
 

@@ -1057,8 +1057,8 @@ export default function CAPA() {
             { label: 'Export CSV', onClick: handleExportCSV },
             { label: 'Export JSON', onClick: handleExportJSON },
           ]}
-          onImport={() => setImportNoticeOpen(true)}
           canEdit={canEdit}
+          hasData={filtered.length > 0}
         />
       </div>
 

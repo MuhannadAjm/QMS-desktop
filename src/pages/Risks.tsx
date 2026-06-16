@@ -818,7 +818,7 @@ export default function Risks() {
             { label: 'Export CSV', onClick: () => exportRisksCSV(filtered) },
             { label: 'Export JSON', onClick: () => exportRisksJSON(filtered) },
           ]}
-          onImport={() => setShowImport(true)}
+          hasData={filtered.length > 0}
         />
       </div>
 

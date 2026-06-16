@@ -376,7 +376,7 @@ export default function Documents() {
               { label: 'Export CSV', onClick: handleExportCSV },
               { label: 'Export JSON', onClick: handleExportJSON },
             ]}
-            onImport={() => setImportNoticeOpen(true)}
+            hasData={filtered.length > 0}
           />
         </div>
       </div>

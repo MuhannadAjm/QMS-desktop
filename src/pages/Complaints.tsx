@@ -739,7 +739,7 @@ export default function Complaints() {
             { label: 'Export CSV', onClick: () => exportComplaintsCSV(filtered) },
             { label: 'Export JSON', onClick: () => exportComplaintsJSON(filtered) },
           ]}
-          onImport={() => setShowImport(true)}
+          hasData={filtered.length > 0}
         />
       </div>
 

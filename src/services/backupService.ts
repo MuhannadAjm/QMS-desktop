@@ -40,3 +40,10 @@ export function validateImportBackup(
 ): Promise<string> {
   return invoke('validate_import_backup', { currentUserId, backupPath });
 }
+
+export function deleteBackup(
+  currentUserId: number,
+  backupPath: string,
+): Promise<void> {
+  return invoke('delete_backup', { currentUserId, backupPath });
+}

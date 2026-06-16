@@ -18,12 +18,56 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+// ── Shared DOM-injection print helper ─────────────────────────────────────────
+// Uses the same technique as printReportTable — avoids window.open() which is
+// blocked by Tauri WebView2's sandbox.
+
+function injectAndPrint(content: string): void {
+  document.getElementById('qms-mod-print-area')?.remove();
+  document.getElementById('qms-mod-print-style')?.remove();
+
+  const styleEl = document.createElement('style');
+  styleEl.id = 'qms-mod-print-style';
+  styleEl.textContent = `
+    @media screen { #qms-mod-print-area { display: none !important; } }
+    @media print {
+      body > *:not(#qms-mod-print-area) { display: none !important; }
+      #qms-mod-print-area { display: block !important; font-family: Arial, 'Segoe UI', sans-serif; font-size: 10pt; color: #1A202C; }
+      #qms-mod-print-area .qmp-header { margin-bottom: 14px; border-bottom: 2px solid #1E3A5F; padding-bottom: 10px; }
+      #qms-mod-print-area .qmp-company { font-size: 15pt; font-weight: 700; color: #1E3A5F; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      #qms-mod-print-area .qmp-report-title { font-size: 11pt; color: #64748B; margin-top: 2px; }
+      #qms-mod-print-area .qmp-meta { font-size: 8pt; color: #94A3B8; margin-top: 10px; margin-bottom: 14px; }
+      #qms-mod-print-area table { width: 100%; border-collapse: collapse; }
+      #qms-mod-print-area thead th { background: #1E3A5F; color: #fff; text-align: left; padding: 6px 8px; font-size: 8pt; font-weight: 600; white-space: nowrap; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      #qms-mod-print-area tbody td { padding: 5px 8px; font-size: 9pt; border-bottom: 1px solid #E2E8F0; vertical-align: top; }
+      #qms-mod-print-area tbody tr:nth-child(even) td { background: #F8FAFC; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      #qms-mod-print-area .qmp-mono { font-family: 'Courier New', monospace; font-weight: 700; font-size: 8.5pt; }
+      #qms-mod-print-area .qmp-footer { margin-top: 14px; font-size: 7.5pt; color: #94A3B8; text-align: center; border-top: 1px solid #E2E8F0; padding-top: 8px; }
+    }
+  `;
+  document.head.appendChild(styleEl);
+
+  const printDiv = document.createElement('div');
+  printDiv.id = 'qms-mod-print-area';
+  printDiv.innerHTML = content;
+  document.body.appendChild(printDiv);
+
+  window.print();
+
+  setTimeout(() => {
+    printDiv.remove();
+    styleEl.remove();
+  }, 500);
+}
+
+// ── Document Print Register ───────────────────────────────────────────────────
+
 function statusStyle(status: string): string {
   switch (status) {
-    case 'CONTROLLED':   return 'color:#15803D;font-weight:600';
+    case 'CONTROLLED':    return 'color:#15803D;font-weight:600';
     case 'UNDER PROCESS': return 'color:#92400E;font-weight:600';
-    case 'OBSOLETE':     return 'color:#94A3B8;font-weight:600';
-    default:             return '';
+    case 'OBSOLETE':      return 'color:#94A3B8;font-weight:600';
+    default:              return '';
   }
 }
 
@@ -37,7 +81,7 @@ export function printDocumentRegister(
 
   const rows = docs.map(d => `
     <tr>
-      <td class="mono">${escapeHtml(d.doc_number)}</td>
+      <td class="qmp-mono">${escapeHtml(d.doc_number)}</td>
       <td>${escapeHtml(d.title)}</td>
       <td>${escapeHtml(d.category)}</td>
       <td>${escapeHtml(d.version)}</td>
@@ -47,89 +91,32 @@ export function printDocumentRegister(
     </tr>
   `).join('');
 
-  const printHtml = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Document Register</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: Arial, 'Segoe UI', sans-serif;
-    font-size: 10pt;
-    color: #1A202C;
-    padding: 16mm 20mm;
-  }
-  .header { margin-bottom: 14px; border-bottom: 2px solid #1E3A5F; padding-bottom: 10px; }
-  .company { font-size: 15pt; font-weight: 700; color: #1E3A5F; }
-  .report-title { font-size: 11pt; color: #64748B; margin-top: 2px; }
-  .meta { font-size: 8pt; color: #94A3B8; margin-top: 10px; margin-bottom: 14px; }
-  table { width: 100%; border-collapse: collapse; }
-  thead th {
-    background: #1E3A5F;
-    color: #fff;
-    text-align: left;
-    padding: 6px 8px;
-    font-size: 8pt;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-  tbody td {
-    padding: 5px 8px;
-    font-size: 9pt;
-    border-bottom: 1px solid #E2E8F0;
-    vertical-align: top;
-  }
-  tbody tr:nth-child(even) td { background: #F8FAFC; }
-  .mono { font-family: 'Courier New', monospace; font-weight: 700; font-size: 8.5pt; }
-  .footer {
-    margin-top: 14px;
-    font-size: 7.5pt;
-    color: #94A3B8;
-    text-align: center;
-    border-top: 1px solid #E2E8F0;
-    padding-top: 8px;
-  }
-  @media print {
-    body { padding: 0; }
-    thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    tbody tr:nth-child(even) td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  }
-</style>
-</head>
-<body>
-  <div class="header">
-    <div class="company">${escapeHtml(companyName || 'QMS Desktop')}</div>
-    <div class="report-title">Document Register</div>
-  </div>
-  <div class="meta">
-    Printed: ${printDate} &nbsp;&nbsp;|&nbsp;&nbsp; Total: ${docs.length} document${docs.length !== 1 ? 's' : ''}
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th>Doc Number</th>
-        <th>Title</th>
-        <th>Type</th>
-        <th>Version</th>
-        <th>Status</th>
-        <th>Owner</th>
-        <th>Approval Date</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-  </table>
-  <div class="footer">
-    QMS Desktop &mdash; Confidential &mdash; ${escapeHtml(companyName || 'QMS Desktop')}
-  </div>
-  <script>window.onload = function() { window.print(); };<\/script>
-</body>
-</html>`;
-
-  const docWin = window.open('', '_blank', 'width=960,height=720,menubar=no,toolbar=no');
-  if (!docWin) return;
-  docWin.document.write(printHtml);
-  docWin.document.close();
+  injectAndPrint(`
+    <div class="qmp-header">
+      <div class="qmp-company">${escapeHtml(companyName || 'QMS Desktop')}</div>
+      <div class="qmp-report-title">Document Register</div>
+    </div>
+    <div class="qmp-meta">
+      Printed: ${printDate} &nbsp;&nbsp;|&nbsp;&nbsp; Total: ${docs.length} document${docs.length !== 1 ? 's' : ''}
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Doc Number</th>
+          <th>Title</th>
+          <th>Type</th>
+          <th>Version</th>
+          <th>Status</th>
+          <th>Owner</th>
+          <th>Approval Date</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="qmp-footer">
+      QMS Desktop &mdash; Confidential &mdash; ${escapeHtml(companyName || 'QMS Desktop')}
+    </div>
+  `);
 }
 
 // ── CAPA Print Register ───────────────────────────────────────────────────────
@@ -161,7 +148,7 @@ export function printCapaRegister(capas: CapaListItem[], companyName: string): v
     const statusLabel = c.is_overdue && c.status === 'OPEN' ? 'OPEN (OVERDUE)' : c.status;
     return `
     <tr>
-      <td class="mono">${escapeHtml(c.capa_number)}</td>
+      <td class="qmp-mono">${escapeHtml(c.capa_number)}</td>
       <td>${escapeHtml(c.title)}</td>
       <td>${escapeHtml(c.capa_type)}</td>
       <td>${escapeHtml(c.source_type ?? '—')}</td>
@@ -173,90 +160,33 @@ export function printCapaRegister(capas: CapaListItem[], companyName: string): v
   `;
   }).join('');
 
-  const printHtml = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>CAPA Register</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: Arial, 'Segoe UI', sans-serif;
-    font-size: 10pt;
-    color: #1A202C;
-    padding: 16mm 20mm;
-  }
-  .header { margin-bottom: 14px; border-bottom: 2px solid #1E3A5F; padding-bottom: 10px; }
-  .company { font-size: 15pt; font-weight: 700; color: #1E3A5F; }
-  .report-title { font-size: 11pt; color: #64748B; margin-top: 2px; }
-  .meta { font-size: 8pt; color: #94A3B8; margin-top: 10px; margin-bottom: 14px; }
-  table { width: 100%; border-collapse: collapse; }
-  thead th {
-    background: #1E3A5F;
-    color: #fff;
-    text-align: left;
-    padding: 6px 8px;
-    font-size: 8pt;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-  tbody td {
-    padding: 5px 8px;
-    font-size: 9pt;
-    border-bottom: 1px solid #E2E8F0;
-    vertical-align: top;
-  }
-  tbody tr:nth-child(even) td { background: #F8FAFC; }
-  .mono { font-family: 'Courier New', monospace; font-weight: 700; font-size: 8.5pt; }
-  .footer {
-    margin-top: 14px;
-    font-size: 7.5pt;
-    color: #94A3B8;
-    text-align: center;
-    border-top: 1px solid #E2E8F0;
-    padding-top: 8px;
-  }
-  @media print {
-    body { padding: 0; }
-    thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    tbody tr:nth-child(even) td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  }
-</style>
-</head>
-<body>
-  <div class="header">
-    <div class="company">${escapeHtml(companyName || 'QMS Desktop')}</div>
-    <div class="report-title">CAPA Register</div>
-  </div>
-  <div class="meta">
-    Printed: ${printDate} &nbsp;&nbsp;|&nbsp;&nbsp; Total: ${capas.length} CAPA${capas.length !== 1 ? 's' : ''}
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th>CAPA Number</th>
-        <th>Title</th>
-        <th>Type</th>
-        <th>Source</th>
-        <th>Priority</th>
-        <th>Responsible</th>
-        <th>Due Date</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-  </table>
-  <div class="footer">
-    QMS Desktop &mdash; Confidential &mdash; ${escapeHtml(companyName || 'QMS Desktop')}
-  </div>
-  <script>window.onload = function() { window.print(); };<\/script>
-</body>
-</html>`;
-
-  const capaWin = window.open('', '_blank', 'width=960,height=720,menubar=no,toolbar=no');
-  if (!capaWin) return;
-  capaWin.document.write(printHtml);
-  capaWin.document.close();
+  injectAndPrint(`
+    <div class="qmp-header">
+      <div class="qmp-company">${escapeHtml(companyName || 'QMS Desktop')}</div>
+      <div class="qmp-report-title">CAPA Register</div>
+    </div>
+    <div class="qmp-meta">
+      Printed: ${printDate} &nbsp;&nbsp;|&nbsp;&nbsp; Total: ${capas.length} CAPA${capas.length !== 1 ? 's' : ''}
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>CAPA Number</th>
+          <th>Title</th>
+          <th>Type</th>
+          <th>Source</th>
+          <th>Priority</th>
+          <th>Responsible</th>
+          <th>Due Date</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="qmp-footer">
+      QMS Desktop &mdash; Confidential &mdash; ${escapeHtml(companyName || 'QMS Desktop')}
+    </div>
+  `);
 }
 
 // ── Risk Print Register ───────────────────────────────────────────────────────
@@ -278,7 +208,7 @@ export function printRiskRegister(risks: RiskListItem[], companyName: string): v
 
   const rows = risks.map(r => `
     <tr>
-      <td class="mono">${escapeHtml(r.risk_number)}</td>
+      <td class="qmp-mono">${escapeHtml(r.risk_number)}</td>
       <td>${escapeHtml(r.title)}</td>
       <td>${escapeHtml(r.category ?? '—')}</td>
       <td>${escapeHtml(r.responsible_user_name ?? '—')}</td>
@@ -290,66 +220,34 @@ export function printRiskRegister(risks: RiskListItem[], companyName: string): v
     </tr>
   `).join('');
 
-  const riskHtml = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Risk Register</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, 'Segoe UI', sans-serif; font-size: 10pt; color: #1A202C; padding: 16mm 20mm; }
-  .header { margin-bottom: 14px; border-bottom: 2px solid #1E3A5F; padding-bottom: 10px; }
-  .company { font-size: 15pt; font-weight: 700; color: #1E3A5F; }
-  .report-title { font-size: 11pt; color: #64748B; margin-top: 2px; }
-  .meta { font-size: 8pt; color: #94A3B8; margin-top: 10px; margin-bottom: 14px; }
-  table { width: 100%; border-collapse: collapse; }
-  thead th { background: #1E3A5F; color: #fff; text-align: left; padding: 6px 8px; font-size: 8pt; font-weight: 600; white-space: nowrap; }
-  tbody td { padding: 5px 8px; font-size: 9pt; border-bottom: 1px solid #E2E8F0; vertical-align: top; }
-  tbody tr:nth-child(even) td { background: #F8FAFC; }
-  .mono { font-family: 'Courier New', monospace; font-weight: 700; font-size: 8.5pt; }
-  .footer { margin-top: 14px; font-size: 7.5pt; color: #94A3B8; text-align: center; border-top: 1px solid #E2E8F0; padding-top: 8px; }
-  @media print {
-    body { padding: 0; }
-    thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    tbody tr:nth-child(even) td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  }
-</style>
-</head>
-<body>
-  <div class="header">
-    <div class="company">${escapeHtml(companyName || 'QMS Desktop')}</div>
-    <div class="report-title">Risk Register</div>
-  </div>
-  <div class="meta">
-    Printed: ${printDate} &nbsp;&nbsp;|&nbsp;&nbsp; Total: ${risks.length} risk${risks.length !== 1 ? 's' : ''}
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th>Risk Number</th>
-        <th>Hazard Description</th>
-        <th>Category</th>
-        <th>Responsible</th>
-        <th>Sev.</th>
-        <th>Like.</th>
-        <th>Score</th>
-        <th>Level</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-  </table>
-  <div class="footer">
-    QMS Desktop &mdash; Confidential &mdash; ${escapeHtml(companyName || 'QMS Desktop')}
-  </div>
-  <script>window.onload = function() { window.print(); };<\/script>
-</body>
-</html>`;
-
-  const riskWin = window.open('', '_blank', 'width=960,height=720,menubar=no,toolbar=no');
-  if (!riskWin) return;
-  riskWin.document.write(riskHtml);
-  riskWin.document.close();
+  injectAndPrint(`
+    <div class="qmp-header">
+      <div class="qmp-company">${escapeHtml(companyName || 'QMS Desktop')}</div>
+      <div class="qmp-report-title">Risk Register</div>
+    </div>
+    <div class="qmp-meta">
+      Printed: ${printDate} &nbsp;&nbsp;|&nbsp;&nbsp; Total: ${risks.length} risk${risks.length !== 1 ? 's' : ''}
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Risk Number</th>
+          <th>Hazard Description</th>
+          <th>Category</th>
+          <th>Responsible</th>
+          <th>Sev.</th>
+          <th>Like.</th>
+          <th>Score</th>
+          <th>Level</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="qmp-footer">
+      QMS Desktop &mdash; Confidential &mdash; ${escapeHtml(companyName || 'QMS Desktop')}
+    </div>
+  `);
 }
 
 // ── Complaint Print Register ──────────────────────────────────────────────────
@@ -370,7 +268,7 @@ export function printComplaintRegister(complaints: ComplaintListItem[], companyN
 
   const rows = complaints.map(c => `
     <tr>
-      <td class="mono">${escapeHtml(c.complaint_number)}</td>
+      <td class="qmp-mono">${escapeHtml(c.complaint_number)}</td>
       <td>${escapeHtml(c.customer_name)}</td>
       <td>${escapeHtml(c.customer_id)}</td>
       <td>${escapeHtml(c.title)}</td>
@@ -381,65 +279,33 @@ export function printComplaintRegister(complaints: ComplaintListItem[], companyN
     </tr>
   `).join('');
 
-  const complaintHtml = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Complaint Register</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, 'Segoe UI', sans-serif; font-size: 10pt; color: #1A202C; padding: 16mm 20mm; }
-  .header { margin-bottom: 14px; border-bottom: 2px solid #1E3A5F; padding-bottom: 10px; }
-  .company { font-size: 15pt; font-weight: 700; color: #1E3A5F; }
-  .report-title { font-size: 11pt; color: #64748B; margin-top: 2px; }
-  .meta { font-size: 8pt; color: #94A3B8; margin-top: 10px; margin-bottom: 14px; }
-  table { width: 100%; border-collapse: collapse; }
-  thead th { background: #1E3A5F; color: #fff; text-align: left; padding: 6px 8px; font-size: 8pt; font-weight: 600; white-space: nowrap; }
-  tbody td { padding: 5px 8px; font-size: 9pt; border-bottom: 1px solid #E2E8F0; vertical-align: top; }
-  tbody tr:nth-child(even) td { background: #F8FAFC; }
-  .mono { font-family: 'Courier New', monospace; font-weight: 700; font-size: 8.5pt; }
-  .footer { margin-top: 14px; font-size: 7.5pt; color: #94A3B8; text-align: center; border-top: 1px solid #E2E8F0; padding-top: 8px; }
-  @media print {
-    body { padding: 0; }
-    thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    tbody tr:nth-child(even) td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  }
-</style>
-</head>
-<body>
-  <div class="header">
-    <div class="company">${escapeHtml(companyName || 'QMS Desktop')}</div>
-    <div class="report-title">Complaint Register</div>
-  </div>
-  <div class="meta">
-    Printed: ${printDate} &nbsp;&nbsp;|&nbsp;&nbsp; Total: ${complaints.length} complaint${complaints.length !== 1 ? 's' : ''}
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th>Complaint No.</th>
-        <th>Customer Name</th>
-        <th>Customer ID</th>
-        <th>Title</th>
-        <th>Received Date</th>
-        <th>Priority</th>
-        <th>Issued By</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-  </table>
-  <div class="footer">
-    QMS Desktop &mdash; Confidential &mdash; ${escapeHtml(companyName || 'QMS Desktop')}
-  </div>
-  <script>window.onload = function() { window.print(); };<\/script>
-</body>
-</html>`;
-
-  const complaintWin = window.open('', '_blank', 'width=960,height=720,menubar=no,toolbar=no');
-  if (!complaintWin) return;
-  complaintWin.document.write(complaintHtml);
-  complaintWin.document.close();
+  injectAndPrint(`
+    <div class="qmp-header">
+      <div class="qmp-company">${escapeHtml(companyName || 'QMS Desktop')}</div>
+      <div class="qmp-report-title">Complaint Register</div>
+    </div>
+    <div class="qmp-meta">
+      Printed: ${printDate} &nbsp;&nbsp;|&nbsp;&nbsp; Total: ${complaints.length} complaint${complaints.length !== 1 ? 's' : ''}
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Complaint No.</th>
+          <th>Customer Name</th>
+          <th>Customer ID</th>
+          <th>Title</th>
+          <th>Received Date</th>
+          <th>Priority</th>
+          <th>Issued By</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="qmp-footer">
+      QMS Desktop &mdash; Confidential &mdash; ${escapeHtml(companyName || 'QMS Desktop')}
+    </div>
+  `);
 }
 
 // ── Audit Print Register ──────────────────────────────────────────────────────
@@ -456,7 +322,7 @@ export function printAuditRegister(audits: AuditListItem[], companyName: string)
 
   const rows = audits.map(a => `
     <tr>
-      <td class="mono">${escapeHtml(a.audit_number)}</td>
+      <td class="qmp-mono">${escapeHtml(a.audit_number)}</td>
       <td>${escapeHtml(a.title)}</td>
       <td>${escapeHtml(a.audit_type ?? '—')}</td>
       <td>${escapeHtml(a.department ?? '—')}</td>
@@ -467,65 +333,33 @@ export function printAuditRegister(audits: AuditListItem[], companyName: string)
     </tr>
   `).join('');
 
-  const auditHtml = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Audit Register</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, 'Segoe UI', sans-serif; font-size: 10pt; color: #1A202C; padding: 16mm 20mm; }
-  .header { margin-bottom: 14px; border-bottom: 2px solid #1E3A5F; padding-bottom: 10px; }
-  .company { font-size: 15pt; font-weight: 700; color: #1E3A5F; }
-  .report-title { font-size: 11pt; color: #64748B; margin-top: 2px; }
-  .meta { font-size: 8pt; color: #94A3B8; margin-top: 10px; margin-bottom: 14px; }
-  table { width: 100%; border-collapse: collapse; }
-  thead th { background: #1E3A5F; color: #fff; text-align: left; padding: 6px 8px; font-size: 8pt; font-weight: 600; white-space: nowrap; }
-  tbody td { padding: 5px 8px; font-size: 9pt; border-bottom: 1px solid #E2E8F0; vertical-align: top; }
-  tbody tr:nth-child(even) td { background: #F8FAFC; }
-  .mono { font-family: 'Courier New', monospace; font-weight: 700; font-size: 8.5pt; }
-  .footer { margin-top: 14px; font-size: 7.5pt; color: #94A3B8; text-align: center; border-top: 1px solid #E2E8F0; padding-top: 8px; }
-  @media print {
-    body { padding: 0; }
-    thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    tbody tr:nth-child(even) td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  }
-</style>
-</head>
-<body>
-  <div class="header">
-    <div class="company">${escapeHtml(companyName || 'QMS Desktop')}</div>
-    <div class="report-title">Audit Register</div>
-  </div>
-  <div class="meta">
-    Printed: ${printDate} &nbsp;&nbsp;|&nbsp;&nbsp; Total: ${audits.length} audit${audits.length !== 1 ? 's' : ''}
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th>Audit Number</th>
-        <th>Title</th>
-        <th>Type</th>
-        <th>Department</th>
-        <th>Lead Auditor</th>
-        <th>Audit Date</th>
-        <th>Findings</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-  </table>
-  <div class="footer">
-    QMS Desktop &mdash; Confidential &mdash; ${escapeHtml(companyName || 'QMS Desktop')}
-  </div>
-  <script>window.onload = function() { window.print(); };<\/script>
-</body>
-</html>`;
-
-  const auditWin = window.open('', '_blank', 'width=960,height=720,menubar=no,toolbar=no');
-  if (!auditWin) return;
-  auditWin.document.write(auditHtml);
-  auditWin.document.close();
+  injectAndPrint(`
+    <div class="qmp-header">
+      <div class="qmp-company">${escapeHtml(companyName || 'QMS Desktop')}</div>
+      <div class="qmp-report-title">Audit Register</div>
+    </div>
+    <div class="qmp-meta">
+      Printed: ${printDate} &nbsp;&nbsp;|&nbsp;&nbsp; Total: ${audits.length} audit${audits.length !== 1 ? 's' : ''}
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Audit Number</th>
+          <th>Title</th>
+          <th>Type</th>
+          <th>Department</th>
+          <th>Lead Auditor</th>
+          <th>Audit Date</th>
+          <th>Findings</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="qmp-footer">
+      QMS Desktop &mdash; Confidential &mdash; ${escapeHtml(companyName || 'QMS Desktop')}
+    </div>
+  `);
 }
 
 // ── Non-Conformity Print Register ─────────────────────────────────────────────
@@ -538,6 +372,53 @@ function ncSeverityStyle(sev: string): string {
     case 'LOW':      return 'color:#15803D;font-weight:600';
     default:         return '';
   }
+}
+
+export function printNcRegister(ncs: NcListItem[], companyName: string): void {
+  const printDate = new Date().toLocaleDateString('en-GB', {
+    day: '2-digit', month: 'long', year: 'numeric',
+  });
+
+  const rows = ncs.map(n => `
+    <tr>
+      <td class="qmp-mono">${escapeHtml(n.nc_number)}</td>
+      <td>${escapeHtml(n.title)}</td>
+      <td style="${ncSeverityStyle(n.severity)}">${escapeHtml(n.severity)}</td>
+      <td>${escapeHtml(n.source_type ?? '—')}</td>
+      <td>${escapeHtml(n.responsible_user_name ?? '—')}</td>
+      <td>${escapeHtml(fmtDate(n.detected_date))}</td>
+      <td>${escapeHtml(n.related_capa_number ?? '—')}</td>
+      <td>${escapeHtml(n.status)}</td>
+    </tr>
+  `).join('');
+
+  injectAndPrint(`
+    <div class="qmp-header">
+      <div class="qmp-company">${escapeHtml(companyName || 'QMS Desktop')}</div>
+      <div class="qmp-report-title">Non-Conformity Register</div>
+    </div>
+    <div class="qmp-meta">
+      Printed: ${printDate} &nbsp;&nbsp;|&nbsp;&nbsp; Total: ${ncs.length} non-conformit${ncs.length !== 1 ? 'ies' : 'y'}
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>NC Number</th>
+          <th>Title</th>
+          <th>Severity</th>
+          <th>Source</th>
+          <th>Responsible</th>
+          <th>Detected Date</th>
+          <th>Related CAPA</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="qmp-footer">
+      QMS Desktop &mdash; Confidential &mdash; ${escapeHtml(companyName || 'QMS Desktop')}
+    </div>
+  `);
 }
 
 // ── Generic report table print (used by Reports page) ────────────────────────
@@ -613,83 +494,4 @@ export function printReportTable(
     printDiv.remove();
     styleEl.remove();
   }, 500);
-}
-
-export function printNcRegister(ncs: NcListItem[], companyName: string): void {
-  const printDate = new Date().toLocaleDateString('en-GB', {
-    day: '2-digit', month: 'long', year: 'numeric',
-  });
-
-  const rows = ncs.map(n => `
-    <tr>
-      <td class="mono">${escapeHtml(n.nc_number)}</td>
-      <td>${escapeHtml(n.title)}</td>
-      <td style="${ncSeverityStyle(n.severity)}">${escapeHtml(n.severity)}</td>
-      <td>${escapeHtml(n.source_type ?? '—')}</td>
-      <td>${escapeHtml(n.responsible_user_name ?? '—')}</td>
-      <td>${escapeHtml(fmtDate(n.detected_date))}</td>
-      <td>${escapeHtml(n.related_capa_number ?? '—')}</td>
-      <td>${escapeHtml(n.status)}</td>
-    </tr>
-  `).join('');
-
-  const ncHtml = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Non-Conformity Register</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, 'Segoe UI', sans-serif; font-size: 10pt; color: #1A202C; padding: 16mm 20mm; }
-  .header { margin-bottom: 14px; border-bottom: 2px solid #1E3A5F; padding-bottom: 10px; }
-  .company { font-size: 15pt; font-weight: 700; color: #1E3A5F; }
-  .report-title { font-size: 11pt; color: #64748B; margin-top: 2px; }
-  .meta { font-size: 8pt; color: #94A3B8; margin-top: 10px; margin-bottom: 14px; }
-  table { width: 100%; border-collapse: collapse; }
-  thead th { background: #1E3A5F; color: #fff; text-align: left; padding: 6px 8px; font-size: 8pt; font-weight: 600; white-space: nowrap; }
-  tbody td { padding: 5px 8px; font-size: 9pt; border-bottom: 1px solid #E2E8F0; vertical-align: top; }
-  tbody tr:nth-child(even) td { background: #F8FAFC; }
-  .mono { font-family: 'Courier New', monospace; font-weight: 700; font-size: 8.5pt; }
-  .footer { margin-top: 14px; font-size: 7.5pt; color: #94A3B8; text-align: center; border-top: 1px solid #E2E8F0; padding-top: 8px; }
-  @media print {
-    body { padding: 0; }
-    thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    tbody tr:nth-child(even) td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  }
-</style>
-</head>
-<body>
-  <div class="header">
-    <div class="company">${escapeHtml(companyName || 'QMS Desktop')}</div>
-    <div class="report-title">Non-Conformity Register</div>
-  </div>
-  <div class="meta">
-    Printed: ${printDate} &nbsp;&nbsp;|&nbsp;&nbsp; Total: ${ncs.length} non-conformit${ncs.length !== 1 ? 'ies' : 'y'}
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th>NC Number</th>
-        <th>Title</th>
-        <th>Severity</th>
-        <th>Source</th>
-        <th>Responsible</th>
-        <th>Detected Date</th>
-        <th>Related CAPA</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-  </table>
-  <div class="footer">
-    QMS Desktop &mdash; Confidential &mdash; ${escapeHtml(companyName || 'QMS Desktop')}
-  </div>
-  <script>window.onload = function() { window.print(); };<\/script>
-</body>
-</html>`;
-
-  const ncWin = window.open('', '_blank', 'width=960,height=720,menubar=no,toolbar=no');
-  if (!ncWin) return;
-  ncWin.document.write(ncHtml);
-  ncWin.document.close();
 }

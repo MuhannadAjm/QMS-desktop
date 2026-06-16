@@ -8,6 +8,7 @@ interface ButtonProps {
   className?: string;
   children: React.ReactNode;
   type?: 'button' | 'submit' | 'reset';
+  title?: string;
 }
 
 const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
@@ -35,12 +36,14 @@ export default function Button({
   className = '',
   children,
   type = 'button',
+  title,
 }: ButtonProps) {
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`
         inline-flex items-center gap-2 rounded-md font-medium
         transition-colors duration-150 cursor-pointer

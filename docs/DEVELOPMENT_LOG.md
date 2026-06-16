@@ -4,6 +4,40 @@ Chronological record of phases completed.
 
 ---
 
+## Phase 14B — Final Manual QA Fixes Before Release
+**Date:** 2026-06-16 | **Branch:** `phase-14b-final-manual-qa-fixes`
+
+### Files Changed
+- `src/services/printService.ts` — rewrote all 6 module print functions from `window.open()` to DOM injection; added shared `injectAndPrint` helper; `printReportTable` preserved unchanged
+- `src/components/ui/ModuleToolbar.tsx` — added `hasData?: boolean` prop; Print and Export disabled when `hasData === false`
+- `src/components/ui/Button.tsx` — added `title?: string` prop (for disabled tooltip)
+- `src/pages/Documents.tsx` — added `hasData={filtered.length > 0}`; removed `onImport`
+- `src/pages/CAPA.tsx` — added `hasData={filtered.length > 0}`; removed `onImport`
+- `src/pages/Risks.tsx` — added `hasData={filtered.length > 0}`; removed `onImport`
+- `src/pages/Complaints.tsx` — added `hasData={filtered.length > 0}`; removed `onImport`
+- `src/pages/Audits.tsx` — added `hasData={filtered.length > 0}`; removed `onImport`
+- `src/pages/NonConformities.tsx` — added `hasData={filtered.length > 0}`; removed `onImport`
+- `src/App.tsx` — added `getCurrentWindow` import; added `keydown` listener for F11/Ctrl+=/Ctrl+-/Ctrl+0/Ctrl+R
+- `src/components/layout/Sidebar.tsx` — enlarged toggle buttons (size 18, brighter, larger click target)
+- `src-tauri/src/commands/backup.rs` — added `delete_backup` command (Admin-only, path safety validation)
+- `src-tauri/src/commands/mod.rs` — added `delete_backup` to pub use
+- `src-tauri/src/lib.rs` — added `delete_backup` to use list and invoke_handler
+- `src/services/backupService.ts` — added `deleteBackup` function
+- `src/pages/Backup.tsx` — added `DeleteModal`, delete state/handlers, Delete button per backup entry (Admin-only)
+- `docs/reports/PHASE_14B_FINAL_MANUAL_QA_FIXES_REPORT.md` — created
+- `docs/CURRENT_PHASE.md` — updated to Phase 14B complete
+- `docs/DEVELOPMENT_LOG.md` — this entry
+- `PHASE_PLAN.md` — Phase 14B row added
+
+### Build Results
+- TypeScript: ✓ 1650 modules, 2.67s
+- cargo check: ✓ 2.22s
+- Tauri release: ✓ 1m 43s
+- MSI: `test-builds/QMS-Desktop-1.0.0-phase14b-final-manual-fixes-test.msi` (3.51 MB)
+- NSIS: `test-builds/QMS-Desktop-1.0.0-phase14b-final-manual-fixes-test-setup.exe` (2.13 MB)
+
+---
+
 ## Phase 14 — Final Release Package and Delivery Preparation
 **Date:** 2026-06-16 | **Branch:** `phase-14-final-release-package`
 

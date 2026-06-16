@@ -400,3 +400,49 @@ pub fn validate_import_backup(
     // Return canonical path for display
     Ok(canonical_src.to_string_lossy().to_string())
 }
+
+#[tauri::command]
+pub fn delete_backup(current_user_id: i64, backup_path: String) -> Result<(), String> {
+    permissions::require_admin(current_user_id)?;
+
+    let path = PathBuf::from(&backup_path);
+
+    if !path.exists() {
+        return Err("Backup folder does not exist.".to_string());
+    }
+    if !path.is_dir() {
+        return Err("Path is not a directory.".to_string());
+    }
+
+    // Name must start with "QMS-Backup-" (never delete safety backups or other dirs)
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if !name.starts_with("QMS-Backup-") {
+        return Err(
+            "Only regular QMS backup folders (QMS-Backup-*) can be deleted here.".to_string(),
+        );
+    }
+
+    // Canonical path must be directly inside the backups directory
+    let paths = storage::get_storage_paths()?;
+    let canonical_target = std::fs::canonicalize(&path)
+        .map_err(|e| format!("Cannot resolve path: {}", e))?;
+    let canonical_backups = std::fs::canonicalize(&paths.backups)
+        .map_err(|e| format!("Cannot resolve backups directory: {}", e))?;
+
+    if !canonical_target.starts_with(&canonical_backups) {
+        return Err("Backup path is outside the backups directory.".to_string());
+    }
+
+    // Ensure it is exactly one level deep (not nested)
+    if canonical_target.parent() != Some(canonical_backups.as_path()) {
+        return Err("Backup path is not a direct child of the backups directory.".to_string());
+    }
+
+    std::fs::remove_dir_all(&canonical_target)
+        .map_err(|e| format!("Failed to delete backup: {}", e))?;
+
+    Ok(())
+}

@@ -16,6 +16,7 @@ interface ModuleToolbarProps {
   onImport?: () => void;
   canEdit?: boolean;
   loading?: boolean;
+  hasData?: boolean;
 }
 
 export default function ModuleToolbar({
@@ -27,6 +28,7 @@ export default function ModuleToolbar({
   onImport,
   canEdit = false,
   loading = false,
+  hasData = true,
 }: ModuleToolbarProps) {
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
@@ -59,7 +61,13 @@ export default function ModuleToolbar({
       )}
 
       {onPrint && (
-        <Button variant="secondary" size="sm" onClick={onPrint}>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={hasData ? onPrint : undefined}
+          disabled={!hasData}
+          title={!hasData ? 'No data to print' : undefined}
+        >
           <Printer size={14} />
           Print
         </Button>
@@ -70,7 +78,9 @@ export default function ModuleToolbar({
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => setExportOpen(prev => !prev)}
+            onClick={hasData ? () => setExportOpen(prev => !prev) : undefined}
+            disabled={!hasData}
+            title={!hasData ? 'No data to export' : undefined}
           >
             <Download size={14} />
             Export
