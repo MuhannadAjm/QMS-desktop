@@ -4,6 +4,35 @@ Chronological record of phases completed.
 
 ---
 
+## Phase 12 — Security Hardening Review and Release Safety Audit
+**Date:** 2026-06-16 | **Branch:** `phase-12-security-hardening-review`
+
+### Files Changed
+- `docs/reports/PHASE_12_SECURITY_HARDENING_REVIEW_REPORT.md` — Created (full audit report)
+- `docs/SECURITY_NOTES.md` — Added: EULA installer note, local data security section (at-rest encryption guidance, backup archive security), Phase 12 audit summary
+- `docs/CURRENT_PHASE.md` — Updated to Phase 12 complete
+- `docs/DEVELOPMENT_LOG.md` — This entry
+
+### Source Code Changed
+None. This is a read-only security audit phase.
+
+### Findings Summary
+- **Critical:** 0
+- **High:** 1 — BUG-08 / H-01: RSA key pair verification required before first commercial activation
+- **Medium:** 3 — M-01 (SQLite unencrypted), M-02 (tauri-plugin-sql initialized but unused), M-03 (admin Edge Functions deployed with --no-verify-jwt)
+- **Low:** 4 — L-01 (CORS wildcard), L-02 (no frontend route guards), L-03 (DEV_HMAC_KEY dead constant), L-04 (HMAC sentinel)
+- **Info:** 3 — I-01 (rate limiting), I-02 (docs bcrypt→Argon2id), I-03 (backup archive sensitivity)
+
+### Security Rating
+**Acceptable for RC** — No blocking vulnerabilities. H-01 must be resolved before first customer activation.
+
+### Build
+- TypeScript: ✓ 1647 modules, 2.58s
+- Rust cargo check: ✓ 3.45s
+- Tauri release: ✓ 1m 42s, MSI 3.51 MB, NSIS 2.13 MB
+
+---
+
 ## Phase 11F — Installer EULA, Icon, Branding, and Release Visual Identity
 **Date:** 2026-06-16 | **Branch:** `phase-11f-installer-eula-branding`
 

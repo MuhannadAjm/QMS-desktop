@@ -2,10 +2,54 @@
 
 | Field | Value |
 |---|---|
-| Phase | **Phase 11F — Installer EULA, Icon, Branding, and Release Visual Identity** |
+| Phase | **Phase 12 — Security Hardening Review and Release Safety Audit** |
 | Status | **Completed** |
 | Date | 2026-06-16 |
-| Next Phase | Phase 12 — TBD |
+| Next Phase | Phase 13 — TBD |
+
+## What Was Delivered (Phase 12)
+
+- **Security audit** — Full review of git/secrets hygiene, desktop binary, license engine, admin portal, auth/passwords, Rust permission enforcement, backup/restore, local data, installer, error handling
+- **Zero critical findings** — No blocking security vulnerabilities
+- **BUG-08 (H-01)** — RSA public key pair verification flagged as High; must confirm before first commercial activation
+- **Operational guidance** — SQLite at-rest encryption guidance added to `SECURITY_NOTES.md`; backup archive security documented
+- **Security rating** — Acceptable for RC
+- **Build** — TypeScript ✓ (1647 modules, 2.58s), Rust ✓ (cargo check 3.45s), Tauri release ✓ (1 pass, 1m 42s), MSI 3.51 MB, NSIS 2.13 MB
+
+## Build Artifact Paths
+
+| Artifact | Path | Size |
+|---|---|---|
+| MSI (test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase12-security-review-test.msi` | 3.51 MB |
+| NSIS (test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase12-security-review-test-setup.exe` | 2.13 MB |
+
+## Module Table (Updated Through Phase 12)
+
+| Module | Phase | Commands | Status |
+|---|---|---|---|
+| Foundation / DB | 1–2 | — | ✓ Done |
+| Auth / Users / Settings | 3 | 8 | ✓ Done |
+| Documents | 4 | 9 | ✓ Done |
+| CAPA | 5 | 9 | ✓ Done |
+| Risks | 6 | 9+2 | ✓ Done |
+| Complaints | 6 | 9+2 | ✓ Done |
+| Audits | 7 | 13 | ✓ Done |
+| Non-Conformities | 7 | 10 | ✓ Done |
+| Dashboard | 8 | 5 | ✓ Done |
+| Reports | 8 | 6 | ✓ Done |
+| Backup | 8 | 5 | ✓ Done |
+| Cross-Module Links | 8B | 4 | ✓ Done |
+| License Engine | 9A | 7 | ✓ Done |
+| Online Activation | 9B | 2 | ✓ Done |
+| Installer / Packaging | 9C | 0 | ✓ Done |
+| License RSA Fix + Menu + Icon | 10B | 0 | ✓ Done |
+| Auth/Users/Profile Cleanup | 11A | +2 | ✓ Done |
+| License/Sidebar/Nav Shell | 11B | 0 | ✓ Done |
+| Reports/Print/Export Fixes | 11C | 0 | ✓ Done |
+| Backup/Restore/Import Flow | 11D | +1 | ✓ Done |
+| Desktop Menu/Help/About/Support | 11E | 0 | ✓ Done |
+| Installer EULA/Icon/Branding | 11F | 0 | ✓ Done |
+| Security Hardening Review | 12 | 0 | ✓ Done |
 
 ## What Was Delivered (Phase 11F)
 

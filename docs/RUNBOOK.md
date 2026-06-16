@@ -532,3 +532,51 @@ To add logging:
 ```rust
 eprintln!("Debug: {}", value);  // prints to Tauri console
 ```
+
+---
+
+## Pre-Release Security Checklist (Phase 12)
+
+Complete this checklist before issuing the first commercial license.
+
+### H-01 — RSA Key Pair Verification (REQUIRED before first activation)
+
+1. Get the private key file that was used to set `LICENSE_PRIVATE_KEY_PEM` in Supabase.
+2. Extract the public key from it:
+   ```powershell
+   openssl rsa -in license_private_key.pem -pubout
+   ```
+3. Compare the output to `src-tauri/src/license/rsa_public_key.rs`.
+4. They must be byte-for-byte identical.
+5. If they differ:
+   - Generate a new key pair: `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out license_private_key.pem`
+   - Extract public key: `openssl rsa -in license_private_key.pem -pubout -out license_public_key.pem`
+   - Update `rsa_public_key.rs` with the new public key PEM
+   - Set new `LICENSE_PRIVATE_KEY_PEM` in Supabase (see Supabase License Secrets section above)
+   - Rebuild and re-test activation end-to-end
+   - Note: Any previously issued license tokens become invalid — customers must re-activate
+
+### M-02 — Remove tauri-plugin-sql (deferred)
+
+When removing the unused SQL plugin:
+1. Remove `tauri-plugin-sql = "2"` from `src-tauri/Cargo.toml`
+2. Remove `.plugin(tauri_plugin_sql::Builder::default().build())` from `src-tauri/src/lib.rs`
+3. Run `cargo check` and `npm run tauri build` to confirm clean build
+
+### M-03 — Redeploy Admin Edge Functions (deferred)
+
+To add platform-level JWT verification as an additional defense layer:
+```bash
+# Redeploy WITHOUT --no-verify-jwt
+supabase functions deploy admin-generate-license
+supabase functions deploy admin-deactivate-device
+supabase functions deploy admin-list-licenses
+```
+The `requireAdmin()` check will continue to run as a second layer on top of platform JWT enforcement.
+
+### Supabase Rate Limiting (I-01)
+
+Enable rate limiting in Supabase Dashboard → Project Settings → API:
+- Set rate limit for Edge Functions (e.g., 60 requests/minute per IP)
+- Monitor `activate-license` and `validate-license` invocation logs for anomalies
+- Edge Function logs: `supabase functions logs activate-license`

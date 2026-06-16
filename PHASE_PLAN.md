@@ -23,6 +23,13 @@
 | 10 | Full QA, Regression Testing, and Release Readiness Audit | No | No | COMPLETE |
 | 10B | License Signing Fix, License Key Format, Menu Bar, Fullscreen, App Icon | Yes | No | COMPLETE |
 | 11A | Auth, Users, Profile, and Menu Context Cleanup | Yes | Yes (007) | COMPLETE |
+| 11B | License/Sidebar/Navigation Shell | Yes | No | COMPLETE |
+| 11C | Reports/Print/Export Fixes | Yes | No | COMPLETE |
+| 11D | Backup/Restore/Import Flow | Yes | No | COMPLETE |
+| 11E | Desktop Menu, Help, About, Support, Updates, Fullscreen Cleanup | Yes | No | COMPLETE |
+| 11F | Installer EULA, Icon, Branding, and Release Visual Identity | No | No | COMPLETE |
+| 12 | Security Hardening Review and Release Safety Audit | No | No | COMPLETE |
+| 13 | TBD | TBD | TBD | PENDING |
 
 ---
 

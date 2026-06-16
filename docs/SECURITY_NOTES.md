@@ -199,10 +199,69 @@ The following paths survive install, uninstall, and upgrade without exception:
 - `%APPDATA%\QMSDesktop\settings.json`
 
 ### EULA
-The End User License Agreement is stored at `src-tauri/EULA.rtf`. It is not yet displayed in the installer UI (requires custom WiX template). No secrets, internal paths, or dev credentials are present in the EULA file.
+The End User License Agreement is stored at `src-tauri/EULA.rtf`. It is displayed in both the WiX MSI installer (LicenseAgreementDlg) and the NSIS setup wizard (MUI_PAGE_LICENSE) — implemented in Phase 11F via `bundle.licenseFile`. No secrets, internal paths, or dev credentials are present in the EULA file.
 
 ---
 
 ## Inactive User Enforcement
 
 Every `require_*` helper queries `WHERE id = ?1` and checks `is_active = 1`. An inactive user's JWT/session is rejected at the Rust layer even if the frontend tries to send it.
+
+---
+
+## Local Data Security (Phase 12 Guidance)
+
+### SQLite Database — Encryption at Rest
+
+The SQLite database at `%APPDATA%\QMSDesktop\qms.db` is stored in standard **unencrypted**
+SQLite format. Any local user with file system access to that path can read all QMS business
+data (CAPAs, risks, complaints, audits, non-conformities, documents, users) using SQLite Browser
+or the sqlite3 CLI.
+
+**SQLCipher (at-rest encryption)** would require significant architectural changes (new Rust
+crate, key management). This is a potential future enhancement, not implemented in v1.0.
+
+**Operational guidance for deployment:**
+
+1. Ensure the Windows user account that runs QMS Desktop is protected with a **strong password**.
+2. Enable **BitLocker** or **Windows Device Encryption** on the host machine to protect data at rest.
+3. Apply appropriate **NTFS permissions** to `%APPDATA%\QMSDesktop\` so only the running user account has access.
+4. Control **physical access** to the machine. Windows account protection relies on physical security.
+5. For multi-user PCs, each user should run QMS Desktop under their own Windows account.
+6. If a machine is decommissioned, **wipe or destroy** the storage device to prevent data recovery.
+
+### Backup Archive Security
+
+Backup archives in `%APPDATA%\QMSDesktop\backups\` include:
+- `data.db` (full QMS database)
+- `uploads/` (all attached files)
+- `settings.json`
+- `license.json` (license token + hardware fingerprint hash)
+
+Backup archives should be stored on encrypted storage. If backups are moved to external media
+(USB drive, network share), ensure that media is access-controlled.
+
+The `license.json` in a backup contains the hardware fingerprint (SHA-256 of COMPUTERNAME:MAC).
+This cannot be used on a different machine (local fingerprint must match). However, backups
+should still be treated as sensitive data.
+
+---
+
+## Phase 12 Security Audit Summary (2026-06-16)
+
+**Audit result:** Acceptable for RC — No critical vulnerabilities found.
+
+**Pre-commercial-activation requirement:** Verify that the RSA public key embedded in
+`src-tauri/src/license/rsa_public_key.rs` matches the private key deployed to Supabase
+`LICENSE_PRIVATE_KEY_PEM`. Use:
+```powershell
+openssl rsa -in license_private_key.pem -pubout
+```
+Compare the output to the PEM in `rsa_public_key.rs`. If different, update and rebuild
+before issuing any customer licenses.
+
+**Deferred improvements:**
+- Remove `tauri-plugin-sql` dead dependency from Cargo.toml and lib.rs (M-02)
+- Redeploy admin Edge Functions without `--no-verify-jwt` for defense-in-depth (M-03)
+- Add frontend `ProtectedRoute` wrappers for admin-only pages (L-02)
+- Remove `DEV_HMAC_KEY` dead constant from `validation.rs` (L-03)
