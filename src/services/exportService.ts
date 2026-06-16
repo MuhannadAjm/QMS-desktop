@@ -333,9 +333,10 @@ export async function exportNcsCSV(ncs: NcListItem[]): Promise<void> {
 }
 
 // ── Generic report CSV export (used by Reports page) ─────────────────────────
+// slug: pre-defined filename slug per report type, e.g. "capa-report", "risk-report"
 
-export async function exportReportCSV(title: string, headers: string[], rows: string[][]): Promise<void> {
-  const filename = `${title.toLowerCase().replace(/\s+/g, '-')}-${today()}.csv`;
+export async function exportReportCSV(slug: string, headers: string[], rows: string[][]): Promise<void> {
+  const filename = `${slug}-${today()}.csv`;
   const csvRows = [headers, ...rows].map(r => r.map(escapeCSV).join(','));
   const content = csvRows.join('\r\n');
   await saveFile(content, filename, 'CSV Files', 'csv');

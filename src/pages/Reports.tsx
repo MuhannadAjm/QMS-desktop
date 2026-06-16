@@ -12,6 +12,7 @@ import {
   Filter,
   ChevronRight,
   ArrowLeft,
+  FileX,
 } from 'lucide-react';
 import Card from '../components/ui/Card';
 import { useAuthStore } from '../stores/authStore';
@@ -52,6 +53,7 @@ interface ReportDef {
   icon: React.ReactNode;
   statusOptions: { value: string; label: string }[];
   allowedRoles: string[];
+  fileSlug: string;
 }
 
 const REPORTS: ReportDef[] = [
@@ -66,6 +68,7 @@ const REPORTS: ReportDef[] = [
       { value: 'OBSOLETE',      label: 'Obsolete' },
     ],
     allowedRoles: ['Admin', 'QualityManager', 'Auditor', 'Employee', 'Viewer'],
+    fileSlug: 'document-register-report',
   },
   {
     id: 'capas',
@@ -77,6 +80,7 @@ const REPORTS: ReportDef[] = [
       { value: 'CLOSED', label: 'Closed' },
     ],
     allowedRoles: ['Admin', 'QualityManager', 'Auditor'],
+    fileSlug: 'capa-report',
   },
   {
     id: 'risks',
@@ -88,6 +92,7 @@ const REPORTS: ReportDef[] = [
       { value: 'CLOSED', label: 'Closed' },
     ],
     allowedRoles: ['Admin', 'QualityManager', 'Auditor'],
+    fileSlug: 'risk-report',
   },
   {
     id: 'complaints',
@@ -99,6 +104,7 @@ const REPORTS: ReportDef[] = [
       { value: 'CLOSED', label: 'Closed' },
     ],
     allowedRoles: ['Admin', 'QualityManager'],
+    fileSlug: 'complaint-report',
   },
   {
     id: 'audits',
@@ -110,6 +116,7 @@ const REPORTS: ReportDef[] = [
       { value: 'CLOSED', label: 'Closed' },
     ],
     allowedRoles: ['Admin', 'QualityManager', 'Auditor'],
+    fileSlug: 'audit-report',
   },
   {
     id: 'ncs',
@@ -122,6 +129,7 @@ const REPORTS: ReportDef[] = [
       { value: 'CLOSED',    label: 'Closed' },
     ],
     allowedRoles: ['Admin', 'QualityManager', 'Auditor'],
+    fileSlug: 'non-conformity-report',
   },
 ];
 
@@ -192,12 +200,21 @@ export default function Reports() {
   const [data, setData] = useState<ReportRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dateRangeError, setDateRangeError] = useState<string | null>(null);
   const [ran, setRan] = useState(false);
 
   const availableReports = REPORTS.filter(r => r.allowedRoles.includes(role));
 
   const runReport = async () => {
     if (!selected) return;
+
+    // Validate date range
+    if (filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo) {
+      setDateRangeError('"Created From" must be before "Created To".');
+      return;
+    }
+    setDateRangeError(null);
+
     setLoading(true);
     setError(null);
     try {
@@ -221,6 +238,10 @@ export default function Reports() {
 
   const handlePrint = () => {
     if (!selected || !ran) return;
+    if (data.length === 0) {
+      alert('No data to print. Adjust filters or create records first.');
+      return;
+    }
     const def = REPORTS.find(r => r.id === selected)!;
     const { headers, rows } = getHeadersAndRows(selected, data);
     printReportTable(def.label, headers, rows, companyName, buildFilterDescription(filters));
@@ -228,9 +249,13 @@ export default function Reports() {
 
   const handleExportCSV = async () => {
     if (!selected || !ran) return;
+    if (data.length === 0) {
+      alert('No data to export. Adjust filters or create records first.');
+      return;
+    }
     const def = REPORTS.find(r => r.id === selected)!;
     const { headers, rows } = getHeadersAndRows(selected, data);
-    await exportReportCSV(def.label, headers, rows);
+    await exportReportCSV(def.fileSlug, headers, rows);
   };
 
   const handleSelectReport = (id: ReportType) => {
@@ -239,6 +264,7 @@ export default function Reports() {
     setData([]);
     setRan(false);
     setError(null);
+    setDateRangeError(null);
   };
 
   const handleBack = () => {
@@ -246,19 +272,20 @@ export default function Reports() {
     setData([]);
     setRan(false);
     setError(null);
+    setDateRangeError(null);
   };
 
   const selectedDef = selected ? REPORTS.find(r => r.id === selected) : null;
+  const hasData = ran && data.length > 0;
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <BarChart3 size={20} className="text-[#1E3A5F]" />
-          <div>
-            <h1 className="text-lg font-bold text-[#1E3A5F]">Reports</h1>
-            <p className="text-xs text-gray-500">Generate, preview, print, and export QMS reports</p>
-          </div>
+      {/* Page header */}
+      <div className="flex items-center gap-3">
+        <BarChart3 size={20} className="text-[#1E3A5F]" />
+        <div>
+          <h1 className="text-lg font-bold text-[#1E3A5F]">Reports</h1>
+          <p className="text-xs text-[#64748B]">Generate, preview, print, and export QMS reports</p>
         </div>
       </div>
 
@@ -290,7 +317,7 @@ export default function Reports() {
       ) : (
         /* Report view with filters + preview */
         <div className="space-y-4">
-          {/* Header bar */}
+          {/* Breadcrumb */}
           <div className="flex items-center gap-3">
             <button
               onClick={handleBack}
@@ -313,7 +340,7 @@ export default function Reports() {
               <h2 className="text-sm font-semibold text-[#1A202C]">Filters</h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Status filter */}
+              {/* Status */}
               <div>
                 <label className="block text-xs font-medium text-[#64748B] mb-1">Status</label>
                 <select
@@ -333,7 +360,10 @@ export default function Reports() {
                 <input
                   type="date"
                   value={filters.dateFrom}
-                  onChange={e => setFilters(f => ({ ...f, dateFrom: e.target.value }))}
+                  onChange={e => {
+                    setFilters(f => ({ ...f, dateFrom: e.target.value }));
+                    setDateRangeError(null);
+                  }}
                   className="w-full h-9 px-3 text-sm border border-[#E2E8F0] rounded-md focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]"
                 />
               </div>
@@ -343,31 +373,46 @@ export default function Reports() {
                 <input
                   type="date"
                   value={filters.dateTo}
-                  onChange={e => setFilters(f => ({ ...f, dateTo: e.target.value }))}
+                  onChange={e => {
+                    setFilters(f => ({ ...f, dateTo: e.target.value }));
+                    setDateRangeError(null);
+                  }}
                   className="w-full h-9 px-3 text-sm border border-[#E2E8F0] rounded-md focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]"
                 />
               </div>
             </div>
-            <div className="flex gap-2 mt-4">
+
+            {/* Date range validation error */}
+            {dateRangeError && (
+              <p className="mt-2 text-xs text-red-600">{dateRangeError}</p>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-2 mt-4 flex-wrap">
               <button
                 onClick={runReport}
                 disabled={loading}
                 className="px-4 py-2 bg-[#1E3A5F] text-white text-sm font-medium rounded-md hover:bg-[#2E5080] transition-colors disabled:opacity-50"
               >
-                {loading ? 'Running…' : 'Run Report'}
+                {loading ? 'Generating…' : 'Generate Report'}
               </button>
+
               {ran && (
                 <>
                   <button
                     onClick={handlePrint}
-                    className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-[#1E3A5F] border border-[#E2E8F0] rounded-md hover:bg-[#F4F6F9] transition-colors"
+                    disabled={!hasData}
+                    title={hasData ? 'Print or save as PDF' : 'No data to print'}
+                    className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-[#1E3A5F] border border-[#E2E8F0] rounded-md hover:bg-[#F4F6F9] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Printer size={14} />
                     Print / Save as PDF
                   </button>
                   <button
                     onClick={handleExportCSV}
-                    className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-[#1E3A5F] border border-[#E2E8F0] rounded-md hover:bg-[#F4F6F9] transition-colors"
+                    disabled={!hasData}
+                    title={hasData ? 'Export filtered data to CSV' : 'No data to export'}
+                    className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-[#1E3A5F] border border-[#E2E8F0] rounded-md hover:bg-[#F4F6F9] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Download size={14} />
                     Export CSV
@@ -375,7 +420,8 @@ export default function Reports() {
                 </>
               )}
             </div>
-            {ran && (
+
+            {ran && hasData && (
               <p className="mt-2 text-xs text-[#64748B]">
                 Tip: Use <strong>Print → Save as PDF</strong> in the print dialog to save a PDF copy.
               </p>
@@ -394,12 +440,25 @@ export default function Reports() {
             <Card padding={false}>
               <div className="px-4 py-3 border-b border-[#E2E8F0] flex items-center justify-between">
                 <p className="text-sm font-semibold text-[#1A202C]">
-                  {selectedDef?.label} — {data.length} record{data.length !== 1 ? 's' : ''}
+                  {selectedDef?.label}
+                  {' '}
+                  <span className="font-normal text-[#64748B]">
+                    — {data.length} record{data.length !== 1 ? 's' : ''}
+                  </span>
                 </p>
                 <p className="text-xs text-[#64748B]">{buildFilterDescription(filters)}</p>
               </div>
+
               {data.length === 0 ? (
-                <p className="text-sm text-[#64748B] text-center py-8">No records match the selected filters.</p>
+                <div className="flex flex-col items-center justify-center py-12 gap-3">
+                  <div className="w-12 h-12 rounded-full bg-[#F1F5F9] flex items-center justify-center">
+                    <FileX size={22} className="text-[#94A3B8]" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-[#1A202C]">No records found</p>
+                    <p className="text-xs text-[#64748B] mt-1">Adjust filters or create records first</p>
+                  </div>
+                </div>
               ) : (
                 <div className="overflow-x-auto">
                   <ReportPreviewTable type={selected} data={data} />
@@ -566,4 +625,3 @@ function ReportPreviewTable({ type, data }: { type: ReportType; data: ReportRow[
       );
   }
 }
-

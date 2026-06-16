@@ -2,10 +2,28 @@
 
 | Field | Value |
 |---|---|
-| Phase | **Phase 11B — License, Sidebar, and Navigation Shell Cleanup** |
+| Phase | **Phase 11C — Reports, Print, Export, and Empty State Fixes** |
 | Status | **Completed** |
 | Date | 2026-06-16 |
-| Next Phase | Phase 11C — TBD |
+| Next Phase | Phase 11D — TBD |
+
+## What Was Delivered (Phase 11C)
+
+- **"Generate Report" label** — Button renamed from "Run Report" across all 6 report types
+- **Empty state guard** — Print and Export buttons disabled when report has 0 rows; clicking shows friendly alert; print dialog never opens; no empty CSV created
+- **Professional empty state** — `FileX` icon + "No records found" / "Adjust filters or create records first" (not an error state)
+- **Date range validation** — If "Created From" > "Created To", inline error shown and fetch blocked
+- **Print fixed (DOM injection)** — `printReportTable` rewritten to inject into current document + `window.print()`; works reliably in Tauri WebView2; app chrome hidden via `@media print`; supports Save as PDF
+- **CSV filenames** — Explicit per-report slugs: `document-register-report-YYYY-MM-DD.csv`, `capa-report-YYYY-MM-DD.csv`, etc.
+- **BUG-06 confirmed resolved** — Role filtering already correctly implemented in `Reports.tsx`
+- **Build** — TypeScript ✓ (1641 modules, 2.43s), Rust cargo check ✓, Rust release ✓, MSI 3.51 MB, NSIS 2.12 MB
+
+## Build Artifact Paths
+
+| Artifact | Path | Size |
+|---|---|---|
+| MSI (test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase11c-reports-test.msi` | 3.51 MB |
+| NSIS (test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase11c-reports-test-setup.exe` | 2.12 MB |
 
 ## What Was Delivered (Phase 11B)
 
@@ -84,3 +102,4 @@
 | License RSA Fix + Menu + Icon | 10B | 0 | ✓ Done |
 | Auth/Users/Profile Cleanup | 11A | +2 | ✓ Done |
 | License/Sidebar/Nav Shell | 11B | 0 | ✓ Done |
+| Reports/Print/Export Fixes | 11C | 0 | ✓ Done |

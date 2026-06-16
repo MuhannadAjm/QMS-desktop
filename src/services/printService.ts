@@ -541,6 +541,8 @@ function ncSeverityStyle(sev: string): string {
 }
 
 // ── Generic report table print (used by Reports page) ────────────────────────
+// Uses DOM injection + window.print() so it works reliably in Tauri WebView2
+// without requiring window.open (which can be blocked by the WebView sandbox).
 
 export function printReportTable(
   title: string,
@@ -549,6 +551,8 @@ export function printReportTable(
   companyName: string,
   filterDescription: string,
 ): void {
+  if (rows.length === 0) return;
+
   const printDate = new Date().toLocaleDateString('en-GB', {
     day: '2-digit', month: 'long', year: 'numeric',
   });
@@ -558,53 +562,57 @@ export function printReportTable(
     `<tr>${r.map(c => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`
   ).join('');
 
-  const html = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>${escapeHtml(title)}</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, 'Segoe UI', sans-serif; font-size: 10pt; color: #1A202C; padding: 16mm 20mm; }
-  .header { margin-bottom: 14px; border-bottom: 2px solid #1E3A5F; padding-bottom: 10px; }
-  .company { font-size: 15pt; font-weight: 700; color: #1E3A5F; }
-  .report-title { font-size: 11pt; color: #64748B; margin-top: 2px; }
-  .meta { font-size: 8pt; color: #94A3B8; margin-top: 10px; margin-bottom: 14px; }
-  table { width: 100%; border-collapse: collapse; }
-  thead th { background: #1E3A5F; color: #fff; text-align: left; padding: 6px 8px; font-size: 8pt; font-weight: 600; white-space: nowrap; }
-  tbody td { padding: 5px 8px; font-size: 9pt; border-bottom: 1px solid #E2E8F0; vertical-align: top; }
-  tbody tr:nth-child(even) td { background: #F8FAFC; }
-  .footer { margin-top: 14px; font-size: 7.5pt; color: #94A3B8; text-align: center; border-top: 1px solid #E2E8F0; padding-top: 8px; }
-  @media print {
-    body { padding: 0; }
-    thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    tbody tr:nth-child(even) td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  }
-</style>
-</head>
-<body>
-  <div class="header">
-    <div class="company">${escapeHtml(companyName || 'QMS Desktop')}</div>
-    <div class="report-title">${escapeHtml(title)}</div>
-  </div>
-  <div class="meta">
-    Printed: ${printDate} &nbsp;&nbsp;|&nbsp;&nbsp; ${escapeHtml(filterDescription)} &nbsp;&nbsp;|&nbsp;&nbsp; ${rows.length} record${rows.length !== 1 ? 's' : ''}
-  </div>
-  <table>
-    <thead><tr>${thCells}</tr></thead>
-    <tbody>${tbRows}</tbody>
-  </table>
-  <div class="footer">
-    QMS Desktop &mdash; Confidential &mdash; ${escapeHtml(companyName || 'QMS Desktop')}
-  </div>
-  <script>window.onload = function() { window.print(); };<\/script>
-</body>
-</html>`;
+  const printContent = `
+    <div class="qpr-header">
+      <div class="qpr-company">${escapeHtml(companyName || 'QMS Desktop')}</div>
+      <div class="qpr-title">${escapeHtml(title)}</div>
+    </div>
+    <div class="qpr-meta">
+      Generated: ${printDate}&nbsp;&nbsp;|&nbsp;&nbsp;${escapeHtml(filterDescription)}&nbsp;&nbsp;|&nbsp;&nbsp;${rows.length} record${rows.length !== 1 ? 's' : ''}
+    </div>
+    <table class="qpr-table">
+      <thead><tr>${thCells}</tr></thead>
+      <tbody>${tbRows}</tbody>
+    </table>
+    <div class="qpr-footer">
+      QMS Desktop &mdash; Confidential &mdash; ${escapeHtml(companyName || 'QMS Desktop')}
+    </div>
+  `;
 
-  const w = window.open('', '_blank', 'width=960,height=720,menubar=no,toolbar=no');
-  if (!w) return;
-  w.document.write(html);
-  w.document.close();
+  // Inject print-only stylesheet
+  const styleEl = document.createElement('style');
+  styleEl.id = 'qms-report-print-style';
+  styleEl.textContent = `
+    @media screen { #qms-report-print-area { display: none !important; } }
+    @media print {
+      body > *:not(#qms-report-print-area) { display: none !important; }
+      #qms-report-print-area { display: block !important; font-family: Arial, 'Segoe UI', sans-serif; color: #1A202C; }
+      .qpr-header { border-bottom: 2px solid #1E3A5F; padding-bottom: 10px; margin-bottom: 14px; }
+      .qpr-company { font-size: 15pt; font-weight: 700; color: #1E3A5F; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .qpr-title { font-size: 11pt; color: #64748B; margin-top: 2px; }
+      .qpr-meta { font-size: 8pt; color: #94A3B8; margin-bottom: 14px; }
+      .qpr-table { width: 100%; border-collapse: collapse; }
+      .qpr-table thead th { background: #1E3A5F; color: #fff; text-align: left; padding: 6px 8px; font-size: 8pt; font-weight: 600; white-space: nowrap; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .qpr-table tbody td { padding: 5px 8px; font-size: 9pt; border-bottom: 1px solid #E2E8F0; vertical-align: top; }
+      .qpr-table tbody tr:nth-child(even) td { background: #F8FAFC; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .qpr-footer { margin-top: 14px; font-size: 7.5pt; color: #94A3B8; text-align: center; border-top: 1px solid #E2E8F0; padding-top: 8px; }
+    }
+  `;
+  document.head.appendChild(styleEl);
+
+  // Inject print content area
+  const printDiv = document.createElement('div');
+  printDiv.id = 'qms-report-print-area';
+  printDiv.innerHTML = printContent;
+  document.body.appendChild(printDiv);
+
+  window.print();
+
+  // Clean up after print dialog closes
+  setTimeout(() => {
+    printDiv.remove();
+    styleEl.remove();
+  }, 500);
 }
 
 export function printNcRegister(ncs: NcListItem[], companyName: string): void {

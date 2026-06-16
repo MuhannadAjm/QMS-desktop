@@ -4,6 +4,17 @@ Chronological record of phases completed.
 
 ---
 
+## Phase 11C — Reports, Print, Export, and Empty State Fixes (2026-06-16)
+
+- **Reports.tsx:** Button renamed from "Run Report" to "Generate Report". Added `fileSlug` field per report definition. Date range validation (dateFrom > dateTo shows inline error, blocks fetch). Empty state guard: Print/Export buttons disabled (`opacity-40`) when 0 rows; clicking while empty shows alert. Professional empty state: `FileX` icon + "No records found" / "Adjust filters or create records first". Role visibility confirmed already filtering correctly by `allowedRoles`.
+- **printService.ts — `printReportTable` rewritten:** Previous `window.open` approach unreliable in Tauri WebView2. New approach: inject `<style>` + `<div id="qms-report-print-area">` into current document; `@media print` hides all app chrome, shows only report; call `window.print()`; clean up DOM after 500ms. Print output: company name header, report title, generated date, filter summary, record count, full table, confidential footer. Works with system "Save as PDF" print destination.
+- **exportService.ts — `exportReportCSV` updated:** First parameter changed from `title` (derived filename, lossy) to `slug` (explicit per-report slug). Filenames: `document-register-report-YYYY-MM-DD.csv`, `capa-report-YYYY-MM-DD.csv`, `risk-report-YYYY-MM-DD.csv`, `complaint-report-YYYY-MM-DD.csv`, `audit-report-YYYY-MM-DD.csv`, `non-conformity-report-YYYY-MM-DD.csv`. CSV: RFC 4180, `\r\n` line endings, UTF-8, null→empty string, dates as `YYYY-MM-DD`.
+- **BUG-06 resolved:** Reports role filtering was already correctly implemented (`availableReports = REPORTS.filter(r => r.allowedRoles.includes(role))`). Phase 10 QA note was stale. Confirmed and documented.
+- **Build:** TypeScript ✓ (1641 modules, 2.43s). Rust cargo check ✓ (1.15s). Rust release ✓ (2 AppControl passes). MSI 3.51 MB. NSIS 2.12 MB.
+- **Artifacts:** Copied to `D:\QMS-Desktop\test-builds\` with `phase11c-reports-test` suffix.
+
+---
+
 ## Phase 11B — License, Sidebar, and Navigation Shell Cleanup (2026-06-16)
 
 - **licenseStore.ts (new):** Zustand store with `state`, `stateLabel`, `isValid`, `setLicenseStatus`. Read by Topbar; written by App.tsx on startup and License.tsx on every action.
