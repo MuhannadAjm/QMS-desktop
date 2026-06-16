@@ -4,6 +4,23 @@ Chronological record of phases completed.
 
 ---
 
+## Phase 11F — Installer EULA, Icon, Branding, and Release Visual Identity
+**Date:** 2026-06-16 | **Branch:** `phase-11f-installer-eula-branding`
+
+### Files Changed
+- `src-tauri/tauri.conf.json` — added `bundle.licenseFile: "EULA.rtf"` and `bundle.copyright: "© 2026 QMS Desktop. All rights reserved."`
+- `src-tauri/icons/**` — all icon sizes regenerated with new checkmark design via `tauri icon` CLI
+
+### Key Behaviors
+- **EULA in MSI**: `licenseFile` field causes Tauri WiX bundler to skip the "Skip license dialog" navigation overrides, allowing the standard `WixUI_InstallDir` `LicenseAgreementDlg` to appear. `WixUILicenseRtf` variable set to EULA.rtf path.
+- **EULA in NSIS**: `licenseFile` field causes `!define LICENSE` to be set to the RTF path, triggering `!insertmacro MUI_PAGE_LICENSE` in the NSIS installer script.
+- **Copyright**: Set in `bundle.copyright`; propagates to NSIS `!define COPYRIGHT`, `BrandingText`, and `VIAddVersionKey "LegalCopyright"` in the installer EXE version resource.
+- **Icon**: White checkmark on navy rounded square — generated 1024×1024 source via PowerShell `System.Drawing`, then `npm exec tauri icon` generated all 40+ required sizes (ICO, ICNS, PNG variants, Windows Store, iOS, Android).
+- **Discovery**: `bundle.licenseFile` is supported by Tauri 2.11.2 bundler but was absent from `config.schema.json`. Confirmed by inspecting the embedded CLI template strings in `cli.win32-x64-msvc.node`.
+- **Build**: TypeScript ✓ (1647 modules, 2.65s), Rust ✓ (cargo check 2.16s), Tauri release ✓ (1 pass, 1m 42s), MSI 3.51 MB, NSIS 2.13 MB
+
+---
+
 ## Phase 11E — Desktop Menu, Help, About, Support, Updates, and Fullscreen Cleanup
 **Date:** 2026-06-16 | **Branch:** `phase-11e-desktop-menu-help-updates`
 

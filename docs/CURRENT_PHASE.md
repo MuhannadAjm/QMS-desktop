@@ -2,10 +2,26 @@
 
 | Field | Value |
 |---|---|
-| Phase | **Phase 11E — Desktop Menu, Help, About, Support, Updates, and Fullscreen Cleanup** |
+| Phase | **Phase 11F — Installer EULA, Icon, Branding, and Release Visual Identity** |
 | Status | **Completed** |
 | Date | 2026-06-16 |
-| Next Phase | Phase 11F — TBD |
+| Next Phase | Phase 12 — TBD |
+
+## What Was Delivered (Phase 11F)
+
+- **EULA in MSI installer** — `bundle.licenseFile: "EULA.rtf"` triggers `LicenseAgreementDlg` in WiX installer; user must scroll and accept before clicking Next
+- **EULA in NSIS installer** — same `licenseFile` triggers `MUI_PAGE_LICENSE` in NSIS setup wizard
+- **Copyright string** — `bundle.copyright` populates NSIS installer branding text and `LegalCopyright` in the installer EXE version resource
+- **New app icon** — White checkmark on navy (#1E3A5F) rounded square; generated with PowerShell `System.Drawing` + `tauri icon` CLI; all 40+ sizes updated (ICO, ICNS, PNG, Windows Store, iOS, Android)
+- **EULA content** — 12-clause professional EULA (existing `src-tauri/EULA.rtf`) covering license grant, activation, device binding, restrictions, local data storage, backup responsibility, warranty disclaimer, limitation of liability, termination, governing law, contact
+- **Build** — TypeScript ✓ (1647 modules, 2.65s), Rust cargo check ✓ (2.16s), Tauri release ✓ (1 pass, 1m 42s), MSI 3.51 MB, NSIS 2.13 MB
+
+## Build Artifact Paths
+
+| Artifact | Path | Size |
+|---|---|---|
+| MSI (test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase11f-installer-branding-test.msi` | 3.51 MB |
+| NSIS (test) | `D:\QMS-Desktop\test-builds\QMS-Desktop-1.0.0-phase11f-installer-branding-test-setup.exe` | 2.13 MB |
 
 ## What Was Delivered (Phase 11E)
 
@@ -147,3 +163,4 @@
 | Reports/Print/Export Fixes | 11C | 0 | ✓ Done |
 | Backup/Restore/Import Flow | 11D | +1 | ✓ Done |
 | Desktop Menu/Help/About/Support | 11E | 0 | ✓ Done |
+| Installer EULA/Icon/Branding | 11F | 0 | ✓ Done |

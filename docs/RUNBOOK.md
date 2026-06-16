@@ -419,6 +419,40 @@ Run the app and open the License page — the fingerprint is displayed under "Ha
 
 ---
 
+## Installer EULA (Phase 11F)
+
+### EULA file
+- **Path:** `src-tauri/EULA.rtf`
+- RTF format — works with both WiX `LicenseAgreementDlg` and NSIS `MUI_PAGE_LICENSE`
+- To update the EULA text: edit `src-tauri/EULA.rtf` using any RTF-capable editor (WordPad, Word)
+- The updated EULA will be embedded in the next installer build automatically
+
+### How the EULA shows in the installer
+- **MSI installer:** A "License Agreement" page appears after the Welcome page. User must scroll to the bottom and click "I accept the terms in the License Agreement" radio button before Next is enabled.
+- **NSIS installer:** A "License Agreement" page appears with Accept/Decline radio buttons. Decline exits the installer.
+- Both are triggered by `bundle.licenseFile: "EULA.rtf"` in `src-tauri/tauri.conf.json`
+
+### EULA field discovery note
+`bundle.licenseFile` is not listed in `config.schema.json` for Tauri 2.11.2 (schema gap), but IS supported by the bundler binary. Confirmed by inspecting template strings in `node_modules/@tauri-apps/cli-win32-x64-msvc/cli.win32-x64-msvc.node`. Do not be misled by the schema warning.
+
+### AppData preservation during install/uninstall
+The MSI and NSIS installers do NOT touch `%APPDATA%\QMSDesktop\`. All business data (data.db, uploads, backups, settings.json, license.json) is preserved across reinstalls and uninstalls.
+
+---
+
+## App Icon (Phase 11F)
+
+### Updating the app icon
+1. Create a 1024×1024 PNG source file (transparent background recommended if using non-square design, or fully filled for the current design)
+2. Run: `npm exec tauri icon path/to/your-icon.png`
+3. This overwrites all icon sizes in `src-tauri/icons/` automatically
+4. Rebuild the app: `npm run tauri build`
+
+### Current icon design
+White checkmark on navy blue (#1E3A5F) rounded square — generated with PowerShell `System.Drawing` in Phase 11F.
+
+---
+
 ## Help Menu / Dialogs (Phase 11E)
 
 ### About dialog

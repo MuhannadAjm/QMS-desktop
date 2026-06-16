@@ -29,6 +29,8 @@
     "active": true,
     "targets": "all",
     "publisher": "QMS Desktop",
+    "copyright": "© 2026 QMS Desktop. All rights reserved.",
+    "licenseFile": "EULA.rtf",
     "category": "Business",
     "shortDescription": "Quality Management System for ISO 9001 compliance",
     "icon": [
