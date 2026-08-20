@@ -37,3 +37,4 @@ verify_jwt = true
 [functions.admin-deactivate-device]
 verify_jwt = true
 
+
