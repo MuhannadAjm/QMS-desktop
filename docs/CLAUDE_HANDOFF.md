@@ -1,7 +1,31 @@
 # Claude Code Handoff Document
 
-**Last updated:** 2026-06-15  
-**Current phase:** Phase 9C complete — Core product DONE
+**Last updated:** 2026-08-20  
+**Current state:** v1.0.0 product complete; licensing backend **recovered onto a new
+Supabase project**. Baseline tag: `recovery-checkpoint-pre-improvements`.
+
+---
+
+## ⚠️ READ FIRST — the licensing backend was rebuilt on 2026-08-20
+
+The Supabase project described throughout `docs/reports/*` (`kumgncvwtkcbgdgqxmju`)
+**no longer exists**. The licensing backend now lives on a new dedicated project,
+the RSA signing key was rotated, and several security defects were fixed.
+
+**`docs/LICENSING_BACKEND.md` is the authoritative reference for anything
+licensing-related.** Read it before touching licensing code, Supabase, RSA keys,
+or the admin app. The phase reports under `docs/reports/` remain valid as
+*historical* records but describe infrastructure that is gone — do not follow
+their instructions and do not rewrite them.
+
+Two rules worth repeating here because getting them wrong is expensive:
+
+- **Never regenerate the RSA key pair casually.** Current production public key
+  SPKI SHA-256 is `9f603a7b697b75f59d672027779fb8d8adc17aef8729938da0c71c64e1f02700`.
+  Regenerating invalidates every issued licence. See `docs/KEY_CUSTODY.md`.
+- **Windows code signing is a deferred commercial-delivery requirement.** Fresh
+  unsigned builds are blocked by Smart App Control. That is a Windows platform
+  policy, not a licensing defect.
 
 ---
 

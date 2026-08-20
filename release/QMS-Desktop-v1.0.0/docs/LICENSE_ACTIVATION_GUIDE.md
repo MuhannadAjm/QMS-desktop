@@ -104,7 +104,7 @@ After successful activation:
 | Issue | Resolution |
 |---|---|
 | "Invalid license key" | Check for typos. The key format is `QMS-XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXX` (uppercase, hyphens). |
-| "Cannot reach the license server" | Check your internet connection. Try again. If behind a proxy or firewall, ensure `https://kumgncvwtkcbgdgqxmju.supabase.co` is reachable. |
+| "Cannot reach the license server" | Check your internet connection. Try again. If behind a proxy or firewall, ensure `https://ojomsgphjljypxodbxyu.supabase.co` is reachable. |
 | "License has reached its maximum number of active devices" | Contact support to deactivate an old machine. |
 | "License is not valid for this machine" | The license is bound to a different machine's hardware. Contact support. |
 | App shows license invalid after reinstall | AppData (including license.json) is preserved across reinstalls. If the license shows invalid, re-run activation from Tools → License. |

@@ -78,3 +78,6 @@ ehthumbs.db
 
 # ------ Logs ------
 *.log
+
+# Supabase CLI machine-local scratch (license-admin)
+license-admin/supabase/.temp/

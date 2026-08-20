@@ -2,10 +2,41 @@
 
 | Field | Value |
 |---|---|
-| Phase | **Phase 14B — Final Manual QA Fixes Before Release** |
-| Status | **Completed** |
-| Date | 2026-06-16 |
-| Next Phase | — (v1.0.0 release complete) |
+| Phase | **Licensing Backend Recovery — COMPLETE** |
+| Status | **Recovered development baseline established** |
+| Date | 2026-08-20 |
+| Baseline tag | `recovery-checkpoint-pre-improvements` |
+| Next Phase | Owner's planned QMS product improvements, starting from that tag |
+
+## What this stage did
+
+The Supabase licensing project was lost. It has been rebuilt on a new dedicated
+project (`ojomsgphjljypxodbxyu`), the RSA signing key was rotated after its
+private half was exposed in a tooling transcript, and several defects found along
+the way were fixed:
+
+- the licence gate **failed open** — any thrown startup error routed to the login
+  screen, bypassing licensing entirely. Now fails closed.
+- a corrupt licence file reported "not activated", indistinguishable from having
+  no licence. Now a distinct `Corrupt` state.
+- the licensing tables had RLS and policies but **no table privileges**, so
+  PostgreSQL denied every request before policies ran — and the same defect
+  silently broke the Edge Functions' `service_role` path.
+- `rls_auto_enable()` was a `SECURITY DEFINER` function executable by `anon`.
+- documentation claimed bcrypt where the code has always used Argon2id.
+- the setup runbook instructed readers to generate a fresh RSA key pair, which is
+  what caused a shipped build to reject every valid licence.
+
+**Authoritative reference: `docs/LICENSING_BACKEND.md`.** Phase reports under
+`docs/reports/` are historical and describe infrastructure that no longer exists.
+
+## Deferred (recorded, not passed)
+
+1. Windows production code signing
+2. Signed-build GUI activation / offline-reopen acceptance
+3. Encrypted external RSA key backup — **pre-customer gate**
+4. Real second-Auth-user negative authorization test
+5. Supabase Pro-only "Leaked Password Protection" advisor warning
 
 ## What Was Delivered (Phase 14B)
 

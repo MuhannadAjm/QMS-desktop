@@ -316,6 +316,39 @@ mod tests {
         }
     }
 
+    /// Expiry is decided by string-comparing "YYYY-MM-DD" produced by hand-rolled
+    /// calendar arithmetic (no chrono). A leap-year or month-boundary slip here
+    /// would silently expire valid licences or extend expired ones, so pin known
+    /// epoch-day values.
+    #[test]
+    fn epoch_day_to_date_conversion_is_correct() {
+        assert_eq!(epoch_days_to_ymd(0),     "1970-01-01"); // epoch
+        assert_eq!(epoch_days_to_ymd(59),    "1970-03-01"); // non-leap year: no Feb 29
+        assert_eq!(epoch_days_to_ymd(365),   "1971-01-01"); // year rollover
+        assert_eq!(epoch_days_to_ymd(789),   "1972-02-29"); // 1972 IS a leap year
+        assert_eq!(epoch_days_to_ymd(10957), "2000-01-01"); // 2000 leap (div by 400)
+        assert_eq!(epoch_days_to_ymd(20577), "2026-05-04");
+        assert_eq!(epoch_days_to_ymd(20603), "2026-05-30");
+    }
+
+    #[test]
+    fn leap_year_rules_follow_the_gregorian_calendar() {
+        assert!(is_leap(2024));         // divisible by 4
+        assert!(!is_leap(2026));
+        assert!(!is_leap(1900));        // divisible by 100 but not 400
+        assert!(is_leap(2000));         // divisible by 400
+    }
+
+    /// Expiry comparison is lexicographic on YYYY-MM-DD, which only works because
+    /// the format is zero-padded and fixed width.
+    #[test]
+    fn date_strings_are_zero_padded_for_lexicographic_comparison() {
+        let d = epoch_days_to_ymd(0);
+        assert_eq!(d.len(), 10);
+        assert!(d < epoch_days_to_ymd(1));
+        assert!(epoch_days_to_ymd(58) < epoch_days_to_ymd(59));
+    }
+
     /// End-to-end check against a real server-issued token, bound to this machine.
     /// Skipped unless QMS_E2E_TOKEN_PATH points at one, because the hardware
     /// fingerprint makes it valid on exactly one host.

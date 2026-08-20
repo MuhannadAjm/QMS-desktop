@@ -1,7 +1,20 @@
 # QMS Licensing — Key Custody
 
-Status: **procedure defined, encrypted backup NOT yet created** (needs an owner
-decision on passphrase and destination — see "Outstanding" below).
+Status: **procedure defined and ready to execute. Encrypted backup NOT yet created.**
+
+> ### ⛔ PRE-CUSTOMER OPERATIONAL GATE
+>
+> Creating the encrypted external backup is a **blocking prerequisite for first
+> customer delivery**. It is deliberately *not* a blocker for continued
+> development against the recovered baseline.
+>
+> Until it is done, the production signing key exists as a single unencrypted
+> copy in the working tree plus one copy in the Supabase secret store, with no
+> tested recovery path. Losing both means no licence can ever again be issued,
+> renewed, or moved to another machine — for any customer, permanently.
+>
+> Deferred only because the passphrase and physical destination are owner
+> decisions that cannot be made on the owner's behalf. Priority: **HIGH.**
 
 ---
 
