@@ -221,3 +221,120 @@ fn epoch_days_to_ymd(mut days: u64) -> String {
 fn is_leap(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::license::token::LicenseToken;
+
+    /// A structurally complete token. Values are placeholders; individual tests
+    /// override whichever field they are exercising.
+    fn sample() -> LicenseToken {
+        LicenseToken {
+            license_id:             "00000000-0000-0000-0000-000000000001".to_string(),
+            activation_id:          Some("00000000-0000-0000-0000-000000000002".to_string()),
+            license_key_last4:      Some("ABCD".to_string()),
+            customer_name:          "Test Customer".to_string(),
+            plan:                   "professional".to_string(),
+            max_activations:        1,
+            hardware_fingerprint:   "f".repeat(64),
+            issued_at:              "2026-01-01T00:00:00Z".to_string(),
+            activated_at:           Some("2026-01-01T00:00:00Z".to_string()),
+            expires_at:             None,
+            last_validated_at:      None,
+            next_validation_due_at: None,
+            grace_until:            None,
+            features:               vec!["capa".to_string(), "risks".to_string()],
+            signature:              "not-a-real-signature".to_string(),
+            status:                 "active".to_string(),
+        }
+    }
+
+    /// The canonical payload is the exact byte sequence the server signs. If Rust
+    /// and the Deno signer disagree by even one byte, every licence fails to
+    /// verify — so pin the shape explicitly rather than trusting BTreeMap.
+    #[test]
+    fn canonical_payload_is_alphabetical_compact_and_includes_nulls() {
+        let c = canonical_payload(&sample()).expect("canonicalisation must succeed");
+
+        // Compact: no spaces after separators.
+        assert!(!c.contains(": "), "payload must be compact JSON");
+        assert!(!c.contains(", "), "payload must be compact JSON");
+
+        // Absent optionals are serialised as null, never omitted.
+        assert!(c.contains(r#""expires_at":null"#));
+        assert!(c.contains(r#""grace_until":null"#));
+        assert!(c.contains(r#""last_validated_at":null"#));
+
+        // Exactly the 15 signed fields, in ascending key order, and no signature.
+        let keys: Vec<&str> = vec![
+            "activated_at", "activation_id", "customer_name", "expires_at", "features",
+            "grace_until", "hardware_fingerprint", "issued_at", "last_validated_at",
+            "license_id", "license_key_last4", "max_activations",
+            "next_validation_due_at", "plan", "status",
+        ];
+        let mut cursor = 0usize;
+        for k in &keys {
+            let pat = format!("\"{}\":", k);
+            let at = c[cursor..].find(&pat)
+                .unwrap_or_else(|| panic!("missing or out-of-order key: {}", k));
+            cursor += at + pat.len();
+        }
+        assert!(!c.contains("\"signature\""), "signature must not be inside its own payload");
+    }
+
+    #[test]
+    fn revoked_status_is_rejected_before_any_crypto() {
+        let mut t = sample();
+        t.status = "revoked".to_string();
+        assert_eq!(validate_token(&t), LicenseState::Revoked);
+    }
+
+    /// The fingerprint is checked before the signature, so an all-f fingerprint
+    /// cannot match any real machine and must report HardwareMismatch — not
+    /// Invalid, which would misdirect support.
+    #[test]
+    fn foreign_hardware_fingerprint_reports_mismatch() {
+        let t = sample();
+        assert_eq!(validate_token(&t), LicenseState::HardwareMismatch);
+    }
+
+    /// dev_bypass must never be honoured in a release build. This assertion flips
+    /// with the build profile, which is the property we care about.
+    #[test]
+    fn dev_bypass_is_release_gated() {
+        let mut t = sample();
+        t.status = "dev_bypass".to_string();
+        t.signature = "DEV-BYPASS-NOT-FOR-PRODUCTION".to_string();
+        let got = validate_token(&t);
+        if cfg!(debug_assertions) {
+            assert_eq!(got, LicenseState::DevBypass, "dev builds accept the sentinel");
+        } else {
+            assert_eq!(got, LicenseState::Invalid, "release builds must reject dev_bypass");
+        }
+    }
+
+    /// End-to-end check against a real server-issued token, bound to this machine.
+    /// Skipped unless QMS_E2E_TOKEN_PATH points at one, because the hardware
+    /// fingerprint makes it valid on exactly one host.
+    #[test]
+    fn production_token_validates_active_on_its_own_machine() {
+        let Ok(path) = std::env::var("QMS_E2E_TOKEN_PATH") else {
+            eprintln!("skipped: QMS_E2E_TOKEN_PATH not set");
+            return;
+        };
+        let raw = std::fs::read_to_string(&path).expect("token file readable");
+        let token: LicenseToken = serde_json::from_str(&raw).expect("token parses");
+
+        assert_eq!(validate_token(&token), LicenseState::Active,
+            "server-issued token must validate Active against the embedded public key");
+
+        // Signature must actually be load-bearing.
+        let mut tampered = token.clone();
+        tampered.customer_name.push('X');
+        assert_eq!(validate_token(&tampered), LicenseState::Invalid,
+            "mutating a signed field must invalidate the token");
+    }
+}
