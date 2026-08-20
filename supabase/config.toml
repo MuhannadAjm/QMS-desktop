@@ -1,0 +1,38 @@
+# Supabase CLI configuration — QMS licensing backend
+#
+# Production project: qms-licensing-prod (org: QMS Systems, region: eu-west-1)
+#
+# This project hosts LICENSING INFRASTRUCTURE ONLY.
+# QMS customer operational data (documents, CAPAs, risks, complaints, audits,
+# non-conformities, attachments, data.db) stays local on each customer machine
+# under %APPDATA%\QMSDesktop\ and is NEVER uploaded here.
+
+project_id = "ojomsgphjljypxodbxyu"
+
+# ── Edge Function JWT gating ───────────────────────────────────────────────────
+#
+# Public functions: called by the QMS Desktop Rust client, which sends NO
+# Authorization header (see activate_license_online / validate_license_online in
+# src-tauri/src/commands/license.rs). The license key itself is the credential,
+# so platform-level JWT verification must be off or every activation returns 401.
+
+[functions.activate-license]
+verify_jwt = false
+
+[functions.validate-license]
+verify_jwt = false
+
+# Admin functions: called by the license-admin app with a real Supabase user JWT.
+# verify_jwt = true rejects anonymous callers at the platform edge BEFORE the
+# function body runs; requireAdmin() in _shared/auth.ts then additionally verifies
+# the JWT and requires a license_admin_profiles row. Defense in depth — this
+# closes the Phase 12 "--no-verify-jwt" finding.
+
+[functions.admin-generate-license]
+verify_jwt = true
+
+[functions.admin-list-licenses]
+verify_jwt = true
+
+[functions.admin-deactivate-device]
+verify_jwt = true
