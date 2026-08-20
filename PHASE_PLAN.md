@@ -331,7 +331,7 @@ Validation:
 The root copies of those six files are stale historical archives (last updated Phase 4B–6). Do not use them as Phase 8 source of truth.
 
 **Root-only files remain valid references after correction:**
-- `ARCHITECTURE.md` — corrected 2026-06-15 (rusqlite + bcrypt)
+- `ARCHITECTURE.md` — corrected 2026-06-15 (rusqlite; password hashing is Argon2id, not bcrypt — see BUG-01)
 - `UI_GUIDELINES.md` — unchanged, still valid
 - `PHASE_PLAN.md` — this file, corrected 2026-06-15
 - `LICENSE_DESIGN.md` — unchanged, still valid

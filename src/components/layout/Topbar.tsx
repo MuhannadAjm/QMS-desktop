@@ -34,6 +34,7 @@ const LICENSE_BADGE_CONFIG: Record<
   HARDWARE_MISMATCH: { cls: 'bg-[#FEE2E2] text-[#DC2626]', dot: 'bg-[#DC2626]', label: 'License Error' },
   REVOKED:           { cls: 'bg-[#FEE2E2] text-[#DC2626]', dot: 'bg-[#DC2626]', label: 'Revoked' },
   INVALID:           { cls: 'bg-[#FEE2E2] text-[#DC2626]', dot: 'bg-[#DC2626]', label: 'Invalid' },
+  CORRUPT:           { cls: 'bg-[#FEE2E2] text-[#DC2626]', dot: 'bg-[#DC2626]', label: 'File Damaged' },
 };
 
 function LicenseBadge() {

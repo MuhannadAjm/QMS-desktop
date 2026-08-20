@@ -3,14 +3,14 @@ use serde::{Deserialize, Serialize};
 use crate::license::{
     LicenseState,
     hardware::{compute_hardware_fingerprint, fingerprint_short},
-    storage::{read_license_token, reset_license_to_unlicensed, write_license_token},
+    storage::{read_license_token, reset_license_to_unlicensed, write_license_token, LicenseFileState},
     token::LicenseToken,
     validation::{compute_dev_signature, validate_token},
 };
 
 // Base URL for the Supabase licensing Edge Functions.
 const LICENSE_SERVER_BASE_URL: &str =
-    "https://kumgncvwtkcbgdgqxmju.supabase.co/functions/v1";
+    "https://ojomsgphjljypxodbxyu.supabase.co/functions/v1";
 
 // ── Response types ─────────────────────────────────────────────────────────────
 
@@ -53,6 +53,7 @@ fn state_label(s: &LicenseState) -> &'static str {
         LicenseState::HardwareMismatch => "Hardware Mismatch",
         LicenseState::Revoked          => "Revoked",
         LicenseState::DevBypass        => "Active (Dev Mode)",
+        LicenseState::Corrupt          => "Corrupt License File",
     }
 }
 
@@ -61,10 +62,11 @@ fn state_message(s: &LicenseState) -> &'static str {
         LicenseState::NotActivated     => "No license found. Import a license token to activate.",
         LicenseState::Active           => "License is valid and active.",
         LicenseState::Expired          => "License has expired. Please renew your license.",
-        LicenseState::Invalid          => "License file is corrupt or has an invalid signature.",
+        LicenseState::Invalid          => "This license failed signature verification. It was not issued for this product build.",
         LicenseState::HardwareMismatch => "This license is bound to a different machine. Contact support.",
         LicenseState::Revoked          => "This license has been revoked. Contact support.",
         LicenseState::DevBypass        => "Running in development mode. Not valid for production use.",
+        LicenseState::Corrupt          => "The license file is damaged and could not be read. Re-activate or import your license token again.",
     }
 }
 
@@ -92,10 +94,10 @@ pub fn get_hardware_fingerprint() -> Result<String, String> {
 /// Called at app startup before login to decide whether to gate access.
 #[tauri::command]
 pub fn get_license_status() -> Result<LicenseStatusResult, String> {
-    let token = read_license_token()?;
-    let state = match token {
-        None    => LicenseState::NotActivated,
-        Some(t) => validate_token(&t),
+    let state = match read_license_token()? {
+        LicenseFileState::Missing  => LicenseState::NotActivated,
+        LicenseFileState::Corrupt  => LicenseState::Corrupt,
+        LicenseFileState::Token(t) => validate_token(&t),
     };
     Ok(build_status(state))
 }
@@ -103,10 +105,11 @@ pub fn get_license_status() -> Result<LicenseStatusResult, String> {
 /// Return full license details for the License page display.
 #[tauri::command]
 pub fn get_license_details() -> Result<LicenseDetails, String> {
-    let token = read_license_token()?;
-    let (state, details) = match token {
-        None => (LicenseState::NotActivated, None),
-        Some(t) => {
+    let (state, details) = match read_license_token()? {
+        LicenseFileState::Missing => (LicenseState::NotActivated, None),
+        LicenseFileState::Corrupt => (LicenseState::Corrupt, None),
+        LicenseFileState::Token(t) => {
+            let t = *t;
             let s = validate_token(&t);
             (s, Some(t))
         }
@@ -343,8 +346,9 @@ pub async fn activate_license_online(
 #[tauri::command]
 pub async fn validate_license_online() -> Result<LicenseStatusResult, String> {
     let token = match read_license_token()? {
-        Some(t) => t,
-        None    => return Ok(build_status(LicenseState::NotActivated)),
+        LicenseFileState::Token(t) => *t,
+        LicenseFileState::Missing  => return Ok(build_status(LicenseState::NotActivated)),
+        LicenseFileState::Corrupt  => return Ok(build_status(LicenseState::Corrupt)),
     };
 
     // DEV_BYPASS tokens don't need online validation

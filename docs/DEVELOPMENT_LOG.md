@@ -393,7 +393,7 @@ Defined AppData storage structure. Implemented database initialization and migra
 - 8 Rust commands: `check_first_admin_exists`, `create_first_admin`, `login`, `list_users`, `list_users_minimal`, `create_user`, `update_user`, `set_user_status`, `reset_user_password`
 - Migration 002: settings table with defaults, schema_migrations tracking
 - Roles: Admin, QualityManager, Auditor, Employee, Viewer
-- bcrypt password hashing
+- Argon2id password hashing (`argon2` crate v0.5). This log line previously read "bcrypt"; the implementation in `password.rs` has used Argon2id since Phase 3 — the entry was wrong, not the code (BUG-01).
 
 ## Phase 3B — Auth/Permission Hardening
 

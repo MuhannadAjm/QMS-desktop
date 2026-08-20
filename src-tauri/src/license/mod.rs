@@ -19,18 +19,24 @@ pub enum LicenseState {
     Revoked,
     /// Development bypass. NOT valid in production builds.
     DevBypass,
+    /// license.json exists but could not be parsed as a LicenseToken.
+    /// Distinct from NotActivated: a corrupt file is a different support
+    /// problem from a missing one, and collapsing the two sent users down
+    /// the wrong diagnostic path.
+    Corrupt,
 }
 
 impl std::fmt::Display for LicenseState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LicenseState::NotActivated    => write!(f, "NOT_ACTIVATED"),
-            LicenseState::Active          => write!(f, "ACTIVE"),
-            LicenseState::Expired         => write!(f, "EXPIRED"),
-            LicenseState::Invalid         => write!(f, "INVALID"),
+            LicenseState::NotActivated     => write!(f, "NOT_ACTIVATED"),
+            LicenseState::Active           => write!(f, "ACTIVE"),
+            LicenseState::Expired          => write!(f, "EXPIRED"),
+            LicenseState::Invalid          => write!(f, "INVALID"),
             LicenseState::HardwareMismatch => write!(f, "HARDWARE_MISMATCH"),
-            LicenseState::Revoked         => write!(f, "REVOKED"),
-            LicenseState::DevBypass       => write!(f, "DEV_BYPASS"),
+            LicenseState::Revoked          => write!(f, "REVOKED"),
+            LicenseState::DevBypass        => write!(f, "DEV_BYPASS"),
+            LicenseState::Corrupt          => write!(f, "CORRUPT"),
         }
     }
 }

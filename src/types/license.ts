@@ -5,7 +5,8 @@ export type LicenseState =
   | 'INVALID'
   | 'HARDWARE_MISMATCH'
   | 'REVOKED'
-  | 'DEV_BYPASS';
+  | 'DEV_BYPASS'
+  | 'CORRUPT';
 
 export interface LicenseStatusResult {
   state: LicenseState;

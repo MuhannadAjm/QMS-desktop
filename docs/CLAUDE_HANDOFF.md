@@ -19,7 +19,7 @@ Read **this file** (`docs/CLAUDE_HANDOFF.md`) and the other files under `docs/` 
 | `RUNBOOK.md` | `docs/RUNBOOK.md` |
 
 Root-only files that **are** valid references (corrected before Phase 8):
-- `ARCHITECTURE.md` — corrected 2026-06-15: rusqlite instead of tauri-plugin-sql; bcrypt instead of Argon2id
+- `ARCHITECTURE.md` — corrected 2026-06-15: rusqlite instead of tauri-plugin-sql. NOTE: password hashing is **Argon2id** (`argon2` crate v0.5, m=19456 t=2 p=1), never bcrypt — an earlier revision of this line stated the reverse (BUG-01)
 - `PHASE_PLAN.md` — corrected 2026-06-15: phase statuses updated; source-of-truth note added
 - `UI_GUIDELINES.md` — original Phase 0 document, still valid
 - `LICENSE_DESIGN.md` — original Phase 0 document, still valid

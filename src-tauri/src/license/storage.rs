@@ -1,35 +1,51 @@
 use crate::license::token::LicenseToken;
 use crate::storage::get_storage_paths;
 
+/// Outcome of reading %APPDATA%\QMSDesktop\license.json.
+///
+/// Phase R8: previously this was Option<LicenseToken>, which mapped a corrupt
+/// file onto None — indistinguishable from "no license installed". The app then
+/// reported NOT_ACTIVATED for a damaged token, which is misleading during
+/// support and hides tampering. The three cases are now explicit.
+#[derive(Debug)]
+pub enum LicenseFileState {
+    /// File absent, empty, or still the "unlicensed" placeholder.
+    Missing,
+    /// File present and readable, but not parseable as a LicenseToken.
+    Corrupt,
+    /// A structurally valid token. Cryptographic validity is decided later.
+    Token(Box<LicenseToken>),
+}
+
 /// Read the license token from %APPDATA%\QMSDesktop\license.json.
-/// Returns Ok(None) if the file is missing, empty, or contains the
-/// placeholder "unlicensed" structure written by create_placeholder_files().
-/// Returns Ok(Some(token)) if a full LicenseToken could be parsed.
-/// Returns Err if the file exists but cannot be read at all.
-pub fn read_license_token() -> Result<Option<LicenseToken>, String> {
+///
+/// Returns Err only when the file exists but cannot be read at all
+/// (permissions, invalid UTF-8). Callers MUST treat that as fail-closed —
+/// never as "no license".
+pub fn read_license_token() -> Result<LicenseFileState, String> {
     let paths = get_storage_paths()?;
     let path = &paths.license;
 
     if !path.exists() {
-        return Ok(None);
+        return Ok(LicenseFileState::Missing);
     }
 
     let content = std::fs::read_to_string(path)
         .map_err(|e| format!("Failed to read license.json: {}", e))?;
 
-    let trimmed = content.trim();
+    let trimmed = content.trim_start_matches('\u{feff}').trim();
     if trimmed.is_empty() {
-        return Ok(None);
+        return Ok(LicenseFileState::Missing);
     }
 
     // Detect placeholder file written by storage::create_placeholder_files()
     if trimmed.contains("\"unlicensed\"") || trimmed.contains("\"status\":\"unlicensed\"") {
-        return Ok(None);
+        return Ok(LicenseFileState::Missing);
     }
 
     match serde_json::from_str::<LicenseToken>(trimmed) {
-        Ok(token) => Ok(Some(token)),
-        Err(_) => Ok(None), // Corrupt JSON → treat as not activated
+        Ok(token) => Ok(LicenseFileState::Token(Box::new(token))),
+        Err(_)    => Ok(LicenseFileState::Corrupt),
     }
 }
 

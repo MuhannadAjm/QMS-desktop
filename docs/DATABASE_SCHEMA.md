@@ -60,7 +60,7 @@ Key-value settings store.
 | full_name | TEXT NOT NULL | |
 | email | TEXT | |
 | role | TEXT NOT NULL | Admin/QualityManager/Auditor/Employee/Viewer |
-| password_hash | TEXT NOT NULL | bcrypt |
+| password_hash | TEXT NOT NULL | Argon2id (`argon2` crate v0.5, m=19456 t=2 p=1) — PHC string |
 | is_active | INTEGER NOT NULL DEFAULT 1 | |
 | created_at | TEXT | |
 | updated_at | TEXT | |

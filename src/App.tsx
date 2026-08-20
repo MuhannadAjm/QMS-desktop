@@ -135,7 +135,14 @@ function MenuListener() {
 }
 
 export default function App() {
-  const { bootstrapState, isAuthenticated, setBootstrapResult, setLicenseInvalid } = useAuthStore();
+  const {
+    bootstrapState,
+    bootstrapError,
+    isAuthenticated,
+    setBootstrapResult,
+    setLicenseInvalid,
+    setBootstrapError,
+  } = useAuthStore();
   const setLicenseStatus = useLicenseStore((s) => s.setLicenseStatus);
   const { activeDialog, closeDialog } = useUiStore();
 
@@ -145,18 +152,63 @@ export default function App() {
   }, [isAuthenticated]);
 
   useEffect(() => {
-    initializeAppStorage()
-      .then(() => licenseService.getLicenseStatus())
-      .then((status) => {
-        setLicenseStatus(status.state, status.state_label, status.is_valid);
-        if (!status.is_valid) {
-          setLicenseInvalid();
-          return;
-        }
-        return checkFirstAdminExists().then((exists) => setBootstrapResult(!exists));
-      })
-      .catch(() => setBootstrapResult(false));
-  }, [setBootstrapResult, setLicenseInvalid, setLicenseStatus]);
+    // Fail-closed startup chain.
+    //
+    // Each step has its own failure handler and NONE of them fall through to
+    // 'ready'. The previous single `.catch(() => setBootstrapResult(false))`
+    // routed every exception — including a thrown license check — to the login
+    // screen, bypassing the license gate entirely. A startup that cannot prove
+    // the license is valid must deny access.
+    let cancelled = false;
+    const fail = (msg: string) => { if (!cancelled) setBootstrapError(msg); };
+
+    (async () => {
+      try {
+        await initializeAppStorage();
+      } catch (e) {
+        fail(
+          `QMS Desktop could not open its data folder.\n\n${String(e)}\n\n` +
+          `Expected location: %APPDATA%\\QMSDesktop\\\n` +
+          `Check that the folder exists and that your Windows account can write to it.`,
+        );
+        return;
+      }
+
+      let status;
+      try {
+        status = await licenseService.getLicenseStatus();
+      } catch (e) {
+        // Fail CLOSED: an unreadable or unreachable license check is not a licence.
+        fail(
+          `QMS Desktop could not verify its licence.\n\n${String(e)}\n\n` +
+          `The licence file at %APPDATA%\\QMSDesktop\\license.json could not be read. ` +
+          `Restore it from a backup or re-activate the product.`,
+        );
+        return;
+      }
+
+      if (cancelled) return;
+      setLicenseStatus(status.state, status.state_label, status.is_valid);
+      if (!status.is_valid) {
+        setLicenseInvalid();
+        return;
+      }
+
+      try {
+        const exists = await checkFirstAdminExists();
+        if (!cancelled) setBootstrapResult(!exists);
+      } catch (e) {
+        fail(
+          `QMS Desktop could not open its database.\n\n${String(e)}\n\n` +
+          `Database: %APPDATA%\\QMSDesktop\\data.db\n` +
+          `The file may be locked by another copy of the app, or damaged. ` +
+          `Close any other instance, or restore a backup.`,
+        );
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [setBootstrapResult, setLicenseInvalid, setLicenseStatus, setBootstrapError]);
 
   if (bootstrapState === 'loading') {
     return (
@@ -166,6 +218,44 @@ export default function App() {
             <span className="text-white font-bold text-[16px]">Q</span>
           </div>
           <p className="text-[13px] text-[#64748B]">Starting QMS Desktop…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Fail-closed terminal state. Rendered OUTSIDE the router so there is no
+  // route — and therefore no navigation — into the application from here.
+  if (bootstrapState === 'bootstrap-error') {
+    return (
+      <div className="min-h-screen bg-[#F4F6F9] flex items-center justify-center p-6">
+        <div className="max-w-lg w-full bg-white rounded-xl border border-[#E2E8F0] p-7">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-xl bg-[#B91C1C] flex items-center justify-center shrink-0">
+              <span className="text-white font-bold text-[18px]">!</span>
+            </div>
+            <h1 className="text-[17px] font-bold text-[#1E3A5F]">QMS Desktop cannot start</h1>
+          </div>
+          <pre className="text-[12.5px] leading-relaxed text-[#334155] whitespace-pre-wrap font-sans mb-5">
+            {bootstrapError ?? 'An unexpected error occurred during startup.'}
+          </pre>
+          <div className="flex gap-2">
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 text-[13px] font-semibold bg-[#1E3A5F] text-white rounded-lg hover:bg-[#162d4a]"
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => { void getCurrentWindow().close(); }}
+              className="px-4 py-2 text-[13px] font-medium border border-[#E2E8F0] rounded-lg hover:bg-[#F8FAFC]"
+            >
+              Close
+            </button>
+          </div>
+          <p className="mt-5 text-[11.5px] text-[#64748B]">
+            Your quality records are not affected by this error. If it persists, contact support
+            with the message above.
+          </p>
         </div>
       </div>
     );

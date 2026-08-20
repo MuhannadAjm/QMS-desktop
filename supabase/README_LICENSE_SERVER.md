@@ -35,8 +35,18 @@ npm install -g supabase
 ```powershell
 cd D:\QMS-Desktop
 supabase login
-supabase link --project-ref YOUR_PROJECT_ID
+supabase link --project-ref ojomsgphjljypxodbxyu
 ```
+
+> On this build machine PowerShell's execution policy blocks `supabase.ps1`.
+> Use **`supabase.cmd`** for every CLI command.
+
+`supabase/config.toml` must exist before any push or deploy — the CLI refuses to
+run without it. It is committed and declares `project_id` plus the per-function
+JWT gating. Do not delete it, and keep the `verify_jwt` values as they are:
+`activate-license` and `validate-license` must stay `false` because the desktop
+client sends no `Authorization` header, and the three `admin-*` functions must
+stay `true` so anonymous callers are rejected at the platform edge.
 
 ### 4. Apply database migrations
 
@@ -44,7 +54,11 @@ supabase link --project-ref YOUR_PROJECT_ID
 supabase db push
 ```
 
-This runs `supabase/migrations/001_license_schema.sql`, creating:
+> Migration filenames must carry a 14-digit timestamp version prefix
+> (`20260615144700_license_schema.sql`). A file named `001_...` is **not**
+> picked up by `db push` — it will appear to succeed while applying nothing.
+
+This runs the licensing schema migration, creating:
 - `license_customers`
 - `license_keys`
 - `license_activations`
@@ -83,17 +97,53 @@ const LICENSE_SERVER_BASE_URL: &str = "https://YOUR_SUPABASE_PROJECT_ID.supabase
 
 with your actual Supabase project URL.
 
-### 8. Update the desktop app's RSA public key
+### 8. RSA keys — DO NOT REGENERATE
 
-In `src-tauri/src/license/rsa_public_key.rs`, replace the dev public key with your production public key.  
-Generate a new key pair for production (the dev key pair is only for testing):
+> **STOP.** Earlier revisions of this document told you to generate a fresh key
+> pair at this step. **Do not.** The production key pair already exists and is
+> in service. Generating a new one silently invalidates every license token ever
+> issued, and produces a binary that rejects correctly-signed licenses with a
+> bare "Invalid" and no diagnostic pointing at the key. That failure mode has
+> already happened once on this project.
 
-```powershell
-node -e "const c=require('crypto');const p=c.generateKeyPairSync('rsa',{modulusLength:2048,publicKeyEncoding:{type:'spki',format:'pem'},privateKeyEncoding:{type:'pkcs8',format:'pem'}});console.log('PUBLIC:\n'+p.publicKey);console.log('PRIVATE:\n'+p.privateKey);"
+The production key pair is fixed:
+
+| Artifact | Location |
+|---|---|
+| Private key (PKCS#8) | `license_private_key.pem` — gitignored, never committed |
+| Public key | `license_public_key.pem` |
+| Public key embedded in the binary | `src-tauri/src/license/rsa_public_key.rs` |
+| Private key in Supabase | secret `LICENSE_PRIVATE_KEY_PEM` |
+
+**Canonical production public key — SPKI SHA-256:**
+
+```
+8780137fd16b15f7d13cf8b32ed07aa5713934722c69807b09ac3724859b17da
 ```
 
-- Public key → paste into `rsa_public_key.rs` (safe to embed — cannot sign with it)
-- Private key → set as `LICENSE_PRIVATE_KEY_PEM` in Supabase secrets
+Verify all three agree before shipping any build:
+
+```bash
+# 1. private and public correspond
+openssl pkey -in license_private_key.pem -pubout -outform DER | openssl dgst -sha256
+
+# 2. the checked-in public key
+openssl pkey -pubin -in license_public_key.pem -outform DER | openssl dgst -sha256
+
+# 3. round-trip proof
+printf 'probe' > /tmp/p && openssl dgst -sha256 -sign license_private_key.pem -out /tmp/s /tmp/p \
+  && openssl dgst -sha256 -verify license_public_key.pem -signature /tmp/s /tmp/p
+```
+
+All three must print the same digest, and step 3 must print `Verified OK`.
+
+To confirm a *built* binary carries the right key, extract the PEM between the
+`BEGIN PUBLIC KEY` / `END PUBLIC KEY` markers in the executable and fingerprint
+it the same way. A build whose fingerprint differs from the value above cannot
+activate any license you issue.
+
+Rotating the key is a breaking change requiring owner sign-off, a coordinated
+re-issue of every outstanding license, and a new build. It is not a setup step.
 
 ### 9. Create the first admin user
 
