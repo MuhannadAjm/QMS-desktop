@@ -31,7 +31,7 @@ Copy `.env.example` to `.env.local` and fill in your Supabase project values:
 
 ```
 VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key_here
 ```
 
 **NEVER commit `.env.local`.** It is in `.gitignore`.
@@ -124,7 +124,7 @@ All API calls go through the WebView JavaScript (Supabase JS client). No Rust HT
 | `LICENSE_KEY_HASH_SECRET` in app | NOT embedded |
 | Admin Edge Functions protected | `requireAdmin()` checks JWT + `license_admin_profiles` |
 | Anonymous access to admin functions | Blocked (401/403) |
-| Frontend env vars | `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` only |
+| Frontend env vars | `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY` only (publishable key; legacy anon key still accepted as fallback) |
 
 ---
 

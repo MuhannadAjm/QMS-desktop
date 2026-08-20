@@ -115,10 +115,16 @@ The production key pair is fixed:
 | Public key embedded in the binary | `src-tauri/src/license/rsa_public_key.rs` |
 | Private key in Supabase | secret `LICENSE_PRIVATE_KEY_PEM` |
 
+> **Key history.** The pair whose SPKI SHA-256 was
+> `8780137fd16b15f7d13cf8b32ed07aa5713934722c69807b09ac3724859b17da` was RETIRED
+> on 2026-08-20: its private half was exposed in a tooling transcript. It had
+> signed zero production licences, so nothing was invalidated by replacing it.
+> That key must never be reinstated. The value below is the live one.
+
 **Canonical production public key — SPKI SHA-256:**
 
 ```
-8780137fd16b15f7d13cf8b32ed07aa5713934722c69807b09ac3724859b17da
+9f603a7b697b75f59d672027779fb8d8adc17aef8729938da0c71c64e1f02700
 ```
 
 Verify all three agree before shipping any build:
