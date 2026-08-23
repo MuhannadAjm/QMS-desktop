@@ -3,7 +3,7 @@ import { listRecordOwnerCandidates } from '../services/adminService';
 import type { AssignmentCandidate } from '../services/adminService';
 import {
   FolderOpen, FileText, CheckCircle, Clock, Archive,
-  X, Edit2, ChevronRight, Paperclip, ExternalLink, Info,
+  X, Edit2, ChevronRight, Paperclip, Trash2, Info,
 } from 'lucide-react';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
 
@@ -17,6 +17,9 @@ import ModuleToolbar from '../components/ui/ModuleToolbar';
 import FilterBar from '../components/ui/FilterBar';
 
 import { useAuthStore } from '../stores/authStore';
+import DocumentViewer from '../components/documents/DocumentViewer';
+import Modal from '../components/ui/Modal';
+import type { DocumentFileInfo } from '../types/document';
 import { usePermissionStore } from '../stores/permissionStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import {
@@ -27,7 +30,10 @@ import {
   attachDocumentFile,
   listDocumentRevisions,
   getDocumentActivity,
-  openDocumentFile,
+  getDocumentFileInfo,
+  removeDocumentAttachment,
+  approveDocument,
+  rejectDocument,
 } from '../services/documentService';
 import { exportDocumentsCSV, exportDocumentsJSON } from '../services/exportService';
 import { printDocumentRegister } from '../services/printService';
@@ -37,6 +43,22 @@ import type { DocumentListItem, DocumentRevision, ActivityEntry } from '../types
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * What to show for "Approval Date".
+ *
+ * approval_date is the system-generated one. Documents created before this
+ * existed carry a hand-typed date in effective_date — the form used to write
+ * there under the label "Approval Date" — so it is still shown rather than
+ * discarded, and marked so nobody reads it as a system record.
+ */
+function approvalDateLabel(doc: DocumentListItem | null): string {
+  if (!doc) return 'Pending approval';
+  if (doc.approval_date) return fmtDate(doc.approval_date);
+  if (doc.effective_date) return `${fmtDate(doc.effective_date)} (recorded before approval tracking)`;
+  if (doc.rejected_at) return 'Rejected — awaiting correction';
+  return 'Pending approval';
+}
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -48,7 +70,6 @@ interface DocForm {
   document_type: string;
   version: string;
   owner_user_id: string;
-  approval_date: string;
   description: string;
 }
 
@@ -57,7 +78,6 @@ const EMPTY_FORM: DocForm = {
   document_type: '',
   version: '1.0',
   owner_user_id: '',
-  approval_date: '',
   description: '',
 };
 
@@ -81,6 +101,10 @@ export default function Documents() {
   const can = usePermissionStore((s) => s.can);
   const canEdit = can('documents.edit');
   const canCreate = can('documents.create');
+  const canManageFiles = can('documents.attachment_manage');
+  const canApprove = can('documents.approve');
+  const canPrint = can('documents.print');
+  const canOpenExternal = can('documents.open_external');
 
   // Data
   const [documents, setDocuments]   = useState<DocumentListItem[]>([]);
@@ -107,6 +131,14 @@ export default function Documents() {
   const [attachSummary, setAttachSummary] = useState('');
   const [attachLoading, setAttachLoading] = useState(false);
   const [attachError, setAttachError]     = useState<string | null>(null);
+
+  // Viewer / approval
+  const [viewerInfo, setViewerInfo]   = useState<DocumentFileInfo | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionBusy, setActionBusy]   = useState(false);
+  const [rejectOpen, setRejectOpen]   = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   // Document modal
   const [modalOpen, setModalOpen]     = useState(false);
@@ -212,7 +244,6 @@ export default function Documents() {
       document_type:  selected.category,
       version:        selected.version,
       owner_user_id:  selected.owner_id ? String(selected.owner_id) : '',
-      approval_date:  selected.effective_date ? fmtDate(selected.effective_date) : '',
       description:    selected.description ?? '',
     });
     setModalMode('edit');
@@ -228,13 +259,12 @@ export default function Documents() {
     setModalError(null);
     try {
       const ownerUserId  = form.owner_user_id ? Number(form.owner_user_id) : null;
-      const approvalDate = form.approval_date || null;
       const description  = form.description.trim() || null;
 
       if (modalMode === 'create') {
         const created = await createDocument(
           user.id, form.title, form.document_type, form.version,
-          ownerUserId, approvalDate, description,
+          ownerUserId, description,
         );
         setDocuments(prev => [created, ...prev]);
         setModalOpen(false);
@@ -242,7 +272,7 @@ export default function Documents() {
       } else if (selected) {
         const updated = await updateDocument(
           user.id, selected.id, form.title, form.document_type, form.version,
-          ownerUserId, approvalDate, description,
+          ownerUserId, description,
         );
         setDocuments(prev => prev.map(d => d.id === updated.id ? updated : d));
         setSelected(updated);
@@ -333,14 +363,60 @@ export default function Documents() {
     }
   };
 
+  // Opening a document keeps it inside the application: fetch what kind of file
+  // it is, then show the viewer. Handing it to Windows is a separate, narrower
+  // action inside the viewer.
   const handleOpenFile = async () => {
     if (!user || !selected) return;
+    setActionError(null);
     try {
-      await openDocumentFile(user.id, selected.id);
+      const info = await getDocumentFileInfo(user.id, selected.id);
+      setViewerInfo(info);
     } catch (err) {
-      setAttachError(err instanceof Error ? err.message : String(err));
+      setActionError(err instanceof Error ? err.message : String(err));
     }
   };
+
+  // Every lifecycle action refreshes from what the backend returned, so the
+  // screen reflects the record rather than an optimistic guess about it.
+  const applyUpdated = (updated: DocumentListItem) => {
+    setDocuments(prev => prev.map(d => (d.id === updated.id ? updated : d)));
+    setSelected(updated);
+    loadDrawerData(updated.id);
+  };
+
+  const runAction = async (fn: () => Promise<DocumentListItem>) => {
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      applyUpdated(await fn());
+      return true;
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+      return false;
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleApprove = async () => {
+    if (!user || !selected) return;
+    await runAction(() => approveDocument(user.id, selected.id));
+  };
+
+  const handleReject = async () => {
+    if (!user || !selected) return;
+    if (!rejectReason.trim()) return;
+    const ok = await runAction(() => rejectDocument(user.id, selected.id, rejectReason));
+    if (ok) { setRejectOpen(false); setRejectReason(''); }
+  };
+
+  const handleRemoveAttachment = async () => {
+    if (!user || !selected) return;
+    const ok = await runAction(() => removeDocumentAttachment(user.id, selected.id));
+    if (ok) setConfirmRemove(false);
+  };
+
 
   // ── Export / Print ────────────────────────────────────────────────────────────
 
@@ -522,7 +598,7 @@ export default function Documents() {
                       {doc.owner_name ?? '—'}
                     </td>
                     <td className="px-4 py-3 text-[#64748B] whitespace-nowrap">
-                      {fmtDate(doc.effective_date)}
+                      {approvalDateLabel(doc)}
                     </td>
                     <td className="px-4 py-3 w-8">
                       <ChevronRight size={14} className="text-[#CBD5E1]" />
@@ -562,12 +638,20 @@ export default function Documents() {
           onBrowseFile={handleBrowseFile}
           onAttachFile={handleAttachFile}
           onOpenFile={handleOpenFile}
+          canManageFiles={canManageFiles}
+          canApprove={canApprove}
+          actionError={actionError}
+          actionBusy={actionBusy}
+          onApprove={handleApprove}
+          onRejectOpen={() => { setRejectReason(''); setActionError(null); setRejectOpen(true); }}
+          onRemoveOpen={() => { setActionError(null); setConfirmRemove(true); }}
         />
       )}
 
       {/* Create / Edit modal */}
       {modalOpen && (
         <DocumentModal
+          approvalLabel={modalMode === 'create' ? 'Set when the document is approved' : approvalDateLabel(selected)}
           mode={modalMode}
           form={form}
           setForm={setForm}
@@ -597,6 +681,104 @@ export default function Documents() {
       {importNoticeOpen && (
         <ImportNoticeModal onClose={() => setImportNoticeOpen(false)} />
       )}
+
+      {/* In-app viewer. The document stays inside QMS unless someone explicitly
+          chooses to hand it to Windows. */}
+      {viewerInfo && selected && user && (
+        <DocumentViewer
+          open
+          onClose={() => setViewerInfo(null)}
+          currentUserId={user.id}
+          doc={selected}
+          info={viewerInfo}
+          canPrint={canPrint}
+          canOpenExternal={canOpenExternal}
+        />
+      )}
+
+      {/* Rejection needs a reason: the author has to know what to correct. */}
+      <Modal
+        open={rejectOpen}
+        title={`Reject ${selected?.doc_number ?? ''}`}
+        onClose={() => setRejectOpen(false)}
+        widthClass="max-w-lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRejectOpen(false)} disabled={actionBusy}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleReject}
+              disabled={actionBusy || !rejectReason.trim()}
+            >
+              {actionBusy ? 'Rejecting…' : 'Reject Document'}
+            </Button>
+          </>
+        }
+      >
+        {actionError && (
+          <p className="text-[13px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-3 py-2">
+            {actionError}
+          </p>
+        )}
+        <p className="text-[12.5px] text-[#64748B]">
+          The document, its file and its history are kept. It stays editable so the author can
+          correct it and resubmit.
+        </p>
+        <div>
+          <label className="block text-[12px] font-semibold text-[#374151] mb-1">
+            Rejection Reason <span className="text-red-500">*</span>
+          </label>
+          <textarea
+            rows={4}
+            autoFocus
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            placeholder="What needs to change before this can be approved?"
+            className="w-full px-3 py-2 text-[13px] border border-[#E2E8F0] rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#2E5080]"
+          />
+          {!rejectReason.trim() && (
+            <p className="text-[11.5px] text-[#94A3B8] mt-1">
+              A reason is required — whitespace alone will not do.
+            </p>
+          )}
+        </div>
+      </Modal>
+
+      {/* Removing a draft's file deletes the stored copy, so it is confirmed. */}
+      <Modal
+        open={confirmRemove}
+        title="Remove attached file"
+        onClose={() => setConfirmRemove(false)}
+        widthClass="max-w-lg"
+        closeOnBackdrop={false}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirmRemove(false)} disabled={actionBusy}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={handleRemoveAttachment} disabled={actionBusy}>
+              {actionBusy ? 'Removing…' : 'Remove File'}
+            </Button>
+          </>
+        }
+      >
+        {actionError && (
+          <p className="text-[13px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-3 py-2">
+            {actionError}
+          </p>
+        )}
+        <p className="text-[13px] text-[#374151]">
+          Remove <strong>{selected?.original_file_name}</strong> from{' '}
+          <strong>{selected?.doc_number}</strong>?
+        </p>
+        <p className="text-[12.5px] text-[#64748B]">
+          The stored copy is deleted and the draft revision entry for it is dropped. The removal
+          itself is recorded in the document's activity history. This is only possible because the
+          document is still under process and has never been approved.
+        </p>
+      </Modal>
     </div>
   );
 }
@@ -626,6 +808,13 @@ interface DrawerProps {
   onBrowseFile: () => void;
   onAttachFile: () => void;
   onOpenFile: () => void;
+  canManageFiles: boolean;
+  canApprove: boolean;
+  actionError: string | null;
+  actionBusy: boolean;
+  onApprove: () => void;
+  onRejectOpen: () => void;
+  onRemoveOpen: () => void;
 }
 
 function DetailsDrawer({
@@ -634,6 +823,8 @@ function DetailsDrawer({
   pendingPath, setPendingPath, pendingName,
   attachSummary, setAttachSummary, attachLoading, attachError,
   onBrowseFile, onAttachFile, onOpenFile,
+  canManageFiles, canApprove, actionError, actionBusy,
+  onApprove, onRejectOpen, onRemoveOpen,
 }: DrawerProps) {
   const tabBtn = (t: typeof tab, label: string, count?: number) => (
     <button
@@ -713,6 +904,13 @@ function DetailsDrawer({
             attachError={attachError}
             onBrowseFile={onBrowseFile}
             onAttachFile={onAttachFile}
+            canManageFiles={canManageFiles}
+            canApprove={canApprove}
+            actionError={actionError}
+            actionBusy={actionBusy}
+            onApprove={onApprove}
+            onRejectOpen={onRejectOpen}
+            onRemoveOpen={onRemoveOpen}
             onOpenFile={onOpenFile}
           />
         )}
@@ -743,6 +941,13 @@ interface DetailsTabProps {
   onBrowseFile: () => void;
   onAttachFile: () => void;
   onOpenFile: () => void;
+  canManageFiles: boolean;
+  canApprove: boolean;
+  actionError: string | null;
+  actionBusy: boolean;
+  onApprove: () => void;
+  onRejectOpen: () => void;
+  onRemoveOpen: () => void;
 }
 
 function DetailsTab({
@@ -750,6 +955,8 @@ function DetailsTab({
   pendingPath, setPendingPath, pendingName,
   attachSummary, setAttachSummary, attachLoading, attachError,
   onBrowseFile, onAttachFile, onOpenFile,
+  canManageFiles, canApprove, actionError, actionBusy,
+  onApprove, onRejectOpen, onRemoveOpen,
 }: DetailsTabProps) {
   return (
     <div className="p-5 space-y-6">
@@ -774,7 +981,21 @@ function DetailsTab({
           </div>
         </div>
         <MetaField label="Owner" value={doc.owner_name ?? '—'} />
-        <MetaField label="Approval Date" value={fmtDate(doc.effective_date)} />
+        <MetaField label="Approval Date" value={approvalDateLabel(doc)} />
+        {doc.approved_by_name && <MetaField label="Approved By" value={doc.approved_by_name} />}
+        {doc.rejected_at && doc.status === 'UNDER PROCESS' && (
+          <div className="col-span-2">
+            <p className="text-[11px] font-semibold text-[#B91C1C] uppercase tracking-wide mb-1">
+              Rejected — correction required
+            </p>
+            <p className="text-[12.5px] text-[#7F1D1D] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-3 py-2 whitespace-pre-wrap">
+              {doc.rejection_reason}
+            </p>
+            <p className="text-[11px] text-[#94A3B8] mt-1">
+              {fmtDate(doc.rejected_at)}{doc.rejected_by_name ? ' · ' + doc.rejected_by_name : ''}
+            </p>
+          </div>
+        )}
         <MetaField label="Last Revised" value={fmtDate(doc.revision_date)} />
         <MetaField label="Created" value={fmtDate(doc.created_at)} />
         <MetaField label="Updated" value={fmtDate(doc.updated_at)} />
@@ -789,6 +1010,39 @@ function DetailsTab({
           <p className="text-[13px] text-[#374151] leading-relaxed whitespace-pre-wrap">
             {doc.description}
           </p>
+        </div>
+      )}
+
+      {/* Approval — only where the lifecycle actually allows a decision */}
+      {canApprove && doc.status === 'UNDER PROCESS' && (
+        <div className="border border-[#E2E8F0] rounded-lg p-4 space-y-3">
+          <p className="text-[11px] font-semibold text-[#94A3B8] uppercase tracking-wide">
+            Approval
+          </p>
+          {!doc.file_path ? (
+            <p className="text-[12.5px] text-[#B45309] bg-[#FFFBEB] border border-[#FDE68A] rounded-md px-3 py-2">
+              Attach the document file before approving. A controlled document must have the file
+              it controls.
+            </p>
+          ) : (
+            <p className="text-[12.5px] text-[#64748B]">
+              Approving places this document under control and records the approval date and
+              approver automatically.
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={actionBusy || !doc.file_path}
+              onClick={onApprove}
+            >
+              <CheckCircle size={13} /> Approve
+            </Button>
+            <Button variant="secondary" size="sm" disabled={actionBusy} onClick={onRejectOpen}>
+              <X size={13} /> Reject
+            </Button>
+          </div>
         </div>
       )}
 
@@ -808,21 +1062,43 @@ function DetailsTab({
               onClick={onOpenFile}
               className="flex items-center gap-1 text-[12px] text-[#2E5080] hover:underline shrink-0"
             >
-              <ExternalLink size={12} /> Open
+              <FileText size={12} /> Preview
             </button>
           </div>
         ) : (
           <p className="text-[13px] text-[#94A3B8] italic">No file attached</p>
         )}
 
-        {canEdit && !pendingPath && (
-          <Button variant="secondary" size="sm" onClick={onBrowseFile}>
-            <Paperclip size={13} />
-            {doc.file_path ? 'Replace File' : 'Attach File'}
-          </Button>
+        {actionError && (
+          <p className="text-[12.5px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-3 py-2">
+            {actionError}
+          </p>
         )}
 
-        {canEdit && pendingPath && (
+        {/* A draft's file can be corrected. A controlled one is evidence: it is
+            superseded by a new revision, never edited in place or erased. */}
+        {canManageFiles && doc.status === 'UNDER PROCESS' && !pendingPath && (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" size="sm" onClick={onBrowseFile}>
+              <Paperclip size={13} />
+              {doc.file_path ? 'Replace File' : 'Attach File'}
+            </Button>
+            {doc.file_path && (
+              <Button variant="secondary" size="sm" onClick={onRemoveOpen} disabled={actionBusy}>
+                <Trash2 size={13} /> Remove File
+              </Button>
+            )}
+          </div>
+        )}
+
+        {canManageFiles && doc.status !== 'UNDER PROCESS' && doc.file_path && (
+          <p className="text-[11.5px] text-[#64748B] bg-[#F8FAFC] border border-[#E2E8F0] rounded-md px-3 py-2">
+            This document is {doc.status.toLowerCase()}. Its file is part of the controlled record
+            and cannot be replaced or removed here — raise a new revision instead.
+          </p>
+        )}
+
+        {canManageFiles && pendingPath && (
           <div className="space-y-2.5 pt-1 border-t border-[#F1F5F9]">
             <div className="flex items-center gap-2 text-[13px]">
               <Paperclip size={13} className="text-[#2E5080] shrink-0" />
@@ -962,9 +1238,11 @@ interface ModalProps {
   error: string | null;
   onClose: () => void;
   onSubmit: () => void;
+  /** Read-only text for the approval date field. */
+  approvalLabel: string;
 }
 
-function DocumentModal({ mode, form, setForm, users, loading, error, onClose, onSubmit }: ModalProps) {
+function DocumentModal({ mode, form, setForm, users, loading, error, onClose, onSubmit, approvalLabel }: ModalProps) {
   const set = (key: keyof DocForm, value: string) => setForm({ ...form, [key]: value });
 
   return (
@@ -1031,7 +1309,7 @@ function DocumentModal({ mode, form, setForm, users, loading, error, onClose, on
             </div>
           </div>
 
-          {/* Owner + Approval Date */}
+          {/* Owner + Approval Date (read-only) */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-[12px] font-semibold text-[#374151] mb-1">Owner</label>
@@ -1047,13 +1325,11 @@ function DocumentModal({ mode, form, setForm, users, loading, error, onClose, on
             </div>
             <div>
               <label className="block text-[12px] font-semibold text-[#374151] mb-1">Approval Date</label>
-              <input
-                type="date"
-                value={form.approval_date}
-                onChange={e => set('approval_date', e.target.value)}
-                className="w-full px-3 py-2 text-[13px] border border-[#E2E8F0] rounded-md
-                           focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#2E5080]"
-              />
+              {/* Read-only by design. An approval date is evidence that a document
+                  became controlled, so it is set by approving — not typed. */}
+              <div className="w-full px-3 py-2 text-[13px] border border-[#E2E8F0] rounded-md bg-[#F8FAFC] text-[#64748B]">
+                {approvalLabel}
+              </div>
             </div>
           </div>
 

@@ -40,6 +40,8 @@ pub use complaints::{
     set_complaint_status, update_complaint,
 };
 pub use documents::{
+    get_document_file_info, read_document_file, print_document_file,
+    remove_document_attachment, approve_document, reject_document,
     attach_document_file, create_document, get_document, get_document_activity,
     list_document_revisions, list_documents, open_document_file, set_document_status,
     update_document,

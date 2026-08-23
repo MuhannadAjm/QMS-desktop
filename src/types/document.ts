@@ -44,6 +44,30 @@ export interface DocumentListItem {
   created_by: number | null;
   created_at: string;
   updated_at: string;
+  /**
+   * System-generated at approval. Null until the document is approved.
+   *
+   * Distinct from effective_date, which older records used for a hand-typed
+   * "approval date" before this column was populated — the UI falls back to it
+   * so historical documents keep showing the date they were filed with.
+   */
+  approval_date: string | null;
+  approved_by: number | null;
+  approved_by_name: string | null;
+  rejected_at: string | null;
+  rejected_by: number | null;
+  rejected_by_name: string | null;
+  rejection_reason: string | null;
+}
+
+/** What the viewer needs to decide how to present a document's file. */
+export interface DocumentFileInfo {
+  document_id: number;
+  original_file_name: string;
+  extension: string;
+  previewable: boolean;
+  size_bytes: number;
+  exists_on_disk: boolean;
 }
 
 export interface DocumentRevision {
