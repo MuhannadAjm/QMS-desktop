@@ -17,6 +17,7 @@ import {
 import { open } from '@tauri-apps/plugin-dialog';
 import Card from '../components/ui/Card';
 import { useAuthStore } from '../stores/authStore';
+import { usePermissionStore } from '../stores/permissionStore';
 import {
   getBackupStatus,
   createLocalBackup,
@@ -245,9 +246,15 @@ function DeleteModal({ entry, onCancel, onConfirm, isDeleting, error }: DeleteMo
 
 export default function Backup() {
   const { user } = useAuthStore();
-  const role = user?.role ?? 'Viewer';
+
   const currentUserId = user?.id ?? 0;
-  const isAdmin = role === 'Admin';
+  // Gating is derived from effective permissions, not from the role name, so a
+  // custom role with these permissions gets the same affordances. Presentation
+  // only: every command re-checks the caller in Rust.
+  const can = usePermissionStore((s) => s.can);
+  const canCreate = can('backup.create');
+  const canRestore = can('backup.restore');
+  const canOperate = canCreate || canRestore;
 
   const [status, setStatus] = useState<BackupStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
@@ -421,14 +428,17 @@ export default function Backup() {
         </div>
       )}
 
-      {/* Admin gate notice */}
-      {!isAdmin && (
+      {/* Capability notice — names the permission, not a role, since any role
+          can be granted it. */}
+      {!canOperate && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
           <Shield size={16} className="text-amber-600 mt-0.5 shrink-0" />
           <div>
-            <p className="text-sm font-semibold text-amber-800">Admin access required</p>
+            <p className="text-sm font-semibold text-amber-800">Read-only access</p>
             <p className="text-xs text-amber-700 mt-0.5">
-              Creating and restoring backups is restricted to Admin users. Contact your system administrator.
+              You can see the backup history, but creating and restoring backups need
+              the “Create backups” and “Restore backups” permissions. Ask an
+              administrator to grant them.
             </p>
           </div>
         </div>
@@ -474,10 +484,11 @@ export default function Backup() {
           </div>
 
           {/* Action buttons — Admin only */}
-          {isAdmin && (
+          {canOperate && (
             <div className="border-t border-[#E2E8F0] pt-4">
               <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-3">Actions</p>
               <div className="flex flex-wrap gap-2">
+                {canCreate && (
                 <button
                   onClick={handleCreate}
                   disabled={creating}
@@ -486,7 +497,9 @@ export default function Backup() {
                   <Plus size={14} />
                   {creating ? 'Creating backup…' : 'Create Backup'}
                 </button>
+                )}
 
+                {canRestore && (
                 <button
                   onClick={handleImportClick}
                   disabled={importValidating}
@@ -495,6 +508,7 @@ export default function Backup() {
                   <Upload size={14} />
                   {importValidating ? 'Validating…' : 'Import Backup File…'}
                 </button>
+                )}
 
                 <button
                   onClick={handleOpenFolder}
@@ -572,7 +586,7 @@ export default function Backup() {
                     </p>
                   </div>
                 </div>
-                {isAdmin && (
+                {canRestore && (
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       onClick={() => handleRestoreClick(b)}
@@ -606,9 +620,9 @@ export default function Backup() {
             <HardDrive size={32} className="mx-auto text-[#CBD5E1] mb-3" />
             <p className="text-sm font-medium text-[#64748B]">No backups found</p>
             <p className="text-xs text-[#94A3B8] mt-1">
-              {isAdmin
+              {canCreate
                 ? 'Create your first backup using the button above.'
-                : 'No backups have been created yet. Contact your Admin.'}
+                : 'No backups have been created yet.'}
             </p>
           </div>
         </Card>

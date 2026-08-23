@@ -17,6 +17,7 @@ import ModuleToolbar from '../components/ui/ModuleToolbar';
 import FilterBar from '../components/ui/FilterBar';
 
 import { useAuthStore } from '../stores/authStore';
+import { usePermissionStore } from '../stores/permissionStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import {
   listDocuments,
@@ -74,7 +75,12 @@ const ACTION_META: Record<string, { label: string; cls: string }> = {
 export default function Documents() {
   const { user } = useAuthStore();
   const { companyName } = useSettingsStore();
-  const canEdit = user?.role === 'Admin' || user?.role === 'QualityManager';
+  // Gating is derived from effective permissions, not from the role name, so a
+  // custom role with these permissions gets the same affordances. Presentation
+  // only: every command re-checks the caller in Rust.
+  const can = usePermissionStore((s) => s.can);
+  const canEdit = can('documents.edit');
+  const canCreate = can('documents.create');
 
   // Data
   const [documents, setDocuments]   = useState<DocumentListItem[]>([]);
@@ -372,7 +378,7 @@ export default function Documents() {
           <ModuleToolbar
             canEdit={canEdit}
             loading={loading}
-            onNew={openCreateModal}
+            onNew={canCreate ? openCreateModal : undefined}
             newLabel="New Document"
             onRefresh={loadDocuments}
             onPrint={handlePrint}

@@ -3,6 +3,7 @@ import { listRecordOwnerCandidates } from '../services/adminService';
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog';
 import { AlertOctagon } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
+import { usePermissionStore } from '../stores/permissionStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import * as ncService from '../services/nonConformityService';
 import { exportNcsCSV, exportNcsJSON } from '../services/exportService';
@@ -587,8 +588,12 @@ export default function NonConformities() {
   const { user } = useAuthStore();
   const { companyName } = useSettingsStore();
   const userId = user?.id ?? 0;
-  const role = user?.role ?? '';
-  const canEdit = ['Admin', 'QualityManager'].includes(role);
+  // Gating is derived from effective permissions, not from the role name, so a
+  // custom role with these permissions gets the same affordances. Presentation
+  // only: every command re-checks the caller in Rust.
+  const can = usePermissionStore((s) => s.can);
+  const canEdit = can('nc.edit');
+  const canCreate = can('nc.create');
 
   const [ncs, setNcs] = useState<NcListItem[]>([]);
 
@@ -670,7 +675,7 @@ export default function NonConformities() {
         </div>
         <ModuleToolbar
           canEdit={canEdit}
-          onNew={() => setShowCreate(true)}
+          onNew={canCreate ? () => setShowCreate(true) : undefined}
           newLabel="+ New NC"
           exportOptions={[
             { label: 'Export CSV', onClick: () => exportNcsCSV(filtered) },

@@ -9,6 +9,7 @@ import { licenseService } from './services/licenseService';
 import { useAuthStore } from './stores/authStore';
 import { useLicenseStore } from './stores/licenseStore';
 import { useUiStore } from './stores/uiStore';
+import { usePermissionStore } from './stores/permissionStore';
 import AboutDialog from './components/dialogs/AboutDialog';
 import HelpDialog from './components/dialogs/HelpDialog';
 import SupportDialog from './components/dialogs/SupportDialog';
@@ -145,6 +146,17 @@ export default function App() {
   } = useAuthStore();
   const setLicenseStatus = useLicenseStore((s) => s.setLicenseStatus);
   const { activeDialog, closeDialog } = useUiStore();
+
+  // Load the effective permissions of whoever is signed in, for UI gating.
+  // Cleared on logout so the next user never inherits the previous visibility.
+  // This is presentation only — every command re-checks in Rust.
+  const loadPermissions = usePermissionStore((s) => s.load);
+  const clearPermissions = usePermissionStore((s) => s.clear);
+  const currentUserId = useAuthStore((s) => s.user?.id);
+  useEffect(() => {
+    if (isAuthenticated && currentUserId) void loadPermissions(currentUserId);
+    else clearPermissions();
+  }, [isAuthenticated, currentUserId, loadPermissions, clearPermissions]);
 
   // Notify Rust of auth state changes so it can toggle menu items.
   useEffect(() => {

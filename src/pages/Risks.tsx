@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { listRecordOwnerCandidates } from '../services/adminService';
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog';
 import { useAuthStore } from '../stores/authStore';
+import { usePermissionStore } from '../stores/permissionStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { riskService } from '../services/riskService';
 import { exportRisksCSV, exportRisksJSON } from '../services/exportService';
@@ -709,7 +710,12 @@ export default function Risks() {
   const { user } = useAuthStore();
   const { companyName } = useSettingsStore();
   const userId = user?.id ?? 0;
-  const canEdit = user?.role === 'Admin' || user?.role === 'QualityManager';
+  // Gating is derived from effective permissions, not from the role name, so a
+  // custom role with these permissions gets the same affordances. Presentation
+  // only: every command re-checks the caller in Rust.
+  const can = usePermissionStore((s) => s.can);
+  const canEdit = can('risks.edit');
+  const canCreate = can('risks.create');
 
   const [risks, setRisks] = useState<RiskListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -825,7 +831,7 @@ export default function Risks() {
       <div className="px-6 pb-2">
         <ModuleToolbar
           canEdit={canEdit}
-          onNew={() => setShowNew(true)}
+          onNew={canCreate ? () => setShowNew(true) : undefined}
           onRefresh={load}
           onPrint={() => printRiskRegister(filtered, companyName)}
           exportOptions={[

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog';
 import { useAuthStore } from '../stores/authStore';
+import { usePermissionStore } from '../stores/permissionStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import PageHeader from '../components/ui/PageHeader';
 import Button from '../components/ui/Button';
@@ -767,7 +768,12 @@ function DetailsDrawer({
 export default function CAPA() {
   const { user } = useAuthStore();
   const { companyName } = useSettingsStore();
-  const canEdit = user?.role === 'Admin' || user?.role === 'QualityManager';
+  // Gating is derived from effective permissions, not from the role name, so a
+  // custom role with these permissions gets the same affordances. Presentation
+  // only: every command re-checks the caller in Rust.
+  const can = usePermissionStore((s) => s.can);
+  const canEdit = can('capa.edit');
+  const canCreate = can('capa.create');
 
   // Data
   const [capas, setCapas] = useState<CapaListItem[]>([]);
@@ -1086,7 +1092,7 @@ export default function CAPA() {
           icon={<CheckCircle2 size={18} />}
         />
         <ModuleToolbar
-          onNew={canEdit ? openCreateModal : undefined}
+          onNew={canCreate ? openCreateModal : undefined}
           newLabel="New CAPA"
           onRefresh={load}
           loading={loading}

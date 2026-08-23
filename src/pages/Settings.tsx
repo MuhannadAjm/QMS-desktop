@@ -15,12 +15,17 @@ import { getSettings, saveSettings } from '../services/settingsService';
 import type { SettingsMap } from '../types/settings';
 import { SETTINGS_DEFAULTS } from '../types/settings';
 import { useAuthStore } from '../stores/authStore';
+import { usePermissionStore } from '../stores/permissionStore';
 import { useSettingsStore } from '../stores/settingsStore';
 
 export default function Settings() {
   const { user } = useAuthStore();
   const { setCompanyName } = useSettingsStore();
-  const canEdit = user?.role === 'Admin' || user?.role === 'QualityManager';
+  // Gating is derived from effective permissions, not from the role name, so a
+  // custom role with these permissions gets the same affordances. Presentation
+  // only: every command re-checks the caller in Rust.
+  const can = usePermissionStore((s) => s.can);
+  const canEdit = can('settings.manage');
 
   const [values, setValues] = useState<SettingsMap>(SETTINGS_DEFAULTS);
   const [loading, setLoading] = useState(true);

@@ -10,11 +10,14 @@ import {
   Loader2,
   Eye,
   EyeOff,
+  ShieldCheck,
 } from 'lucide-react';
 import PageHeader from '../components/ui/PageHeader';
 import Card from '../components/ui/Card';
 import StatusBadge from '../components/ui/StatusBadge';
+import UserPermissionsModal from '../components/users/UserPermissionsModal';
 import { useAuthStore } from '../stores/authStore';
+import { usePermissionStore } from '../stores/permissionStore';
 import {
   listUsers,
   createUser,
@@ -22,8 +25,8 @@ import {
   setUserStatus,
   resetUserPassword,
 } from '../services/userService';
+import { listRoles, type RoleListItem } from '../services/rbacService';
 import type { UserListItem } from '../types/user';
-import { ALL_ROLES, ROLE_LABELS } from '../types/user';
 
 type ModalMode = 'create' | 'edit' | 'reset-password' | null;
 
@@ -49,13 +52,23 @@ const EMPTY_FORM: UserFormState = {
 
 export default function Users() {
   const { user: currentUser } = useAuthStore();
-  const isAdmin = currentUser?.role === 'Admin';
+
+  // Authority comes from effective permissions, never from the role name. A
+  // custom role granted users.manage administers users just as well as Admin;
+  // an Admin whose permissions were narrowed no longer does. These only decide
+  // what is rendered — every command re-checks in Rust.
+  const can = usePermissionStore((s) => s.can);
+  const canView = can('users.view');
+  const canManage = can('users.manage');
+  const canViewRoles = can('roles.view');
 
   const [users, setUsers] = useState<UserListItem[]>([]);
+  const [roles, setRoles] = useState<RoleListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [selectedUser, setSelectedUser] = useState<UserListItem | null>(null);
+  const [permissionsFor, setPermissionsFor] = useState<UserListItem | null>(null);
   const [form, setForm] = useState<UserFormState>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -70,10 +83,36 @@ export default function Users() {
       .finally(() => setLoading(false));
   }
 
-  useEffect(() => { if (isAdmin) loadUsers(); }, [isAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (canView) loadUsers(); }, [canView]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Assignable roles come from the database, so a role created on this screen's
+  // sibling appears here without a code change. Reading roles is its own
+  // permission; without it the form falls back to the user's existing role
+  // rather than offering a stale hard-coded list.
+  useEffect(() => {
+    if (!currentUser || !canViewRoles) return;
+    listRoles(currentUser.id)
+      .then(setRoles)
+      .catch(() => setError('Failed to load the list of roles'));
+  }, [currentUser, canViewRoles]);
+
+  const roleLabel = (roleKey: string) =>
+    roles.find((r) => r.role_key === roleKey)?.name ?? roleKey;
+
+  // A deactivated role stays selectable only for users who already hold it, so
+  // editing their name does not silently reassign them.
+  const assignableRoles = roles.filter((r) => r.is_active || r.role_key === form.role);
 
   function openCreate() {
-    setForm(EMPTY_FORM);
+    // Prefer the seeded Employee role, but fall back to whatever active role
+    // exists — a deployment may have deactivated or replaced the defaults, and
+    // pre-selecting a deactivated role would fail validation on submit.
+    const active = roles.filter((r) => r.is_active);
+    const preferred =
+      active.find((r) => r.role_key === EMPTY_FORM.role)?.role_key ??
+      active[0]?.role_key ??
+      EMPTY_FORM.role;
+    setForm({ ...EMPTY_FORM, role: preferred });
     setFormError(null);
     setShowPassword(false);
     setSelectedUser(null);
@@ -164,13 +203,14 @@ export default function Users() {
     }
   }
 
-  if (!isAdmin) {
+  if (!canView) {
     return (
       <div className="p-6">
         <PageHeader title="Users" subtitle="Local user accounts and role management" icon={<UsersIcon size={18} />} />
         <Card className="mt-6">
           <p className="text-[13px] text-[#64748B]">
-            Access to user management is restricted to Administrators.
+            You do not have permission to view users. Ask an administrator to grant
+            you the “View users” permission.
           </p>
         </Card>
       </div>
@@ -184,13 +224,15 @@ export default function Users() {
         subtitle="Local user accounts and role management"
         icon={<UsersIcon size={18} />}
         action={
-          <button
-            onClick={openCreate}
-            className="flex items-center gap-1.5 h-9 px-4 bg-[#1E3A5F] hover:bg-[#2E5080] text-white text-[13px] font-medium rounded-md transition-colors"
-          >
-            <Plus size={14} />
-            New User
-          </button>
+          canManage ? (
+            <button
+              onClick={openCreate}
+              className="flex items-center gap-1.5 h-9 px-4 bg-[#1E3A5F] hover:bg-[#2E5080] text-white text-[13px] font-medium rounded-md transition-colors"
+            >
+              <Plus size={14} />
+              New User
+            </button>
+          ) : undefined
         }
       />
 
@@ -225,25 +267,35 @@ export default function Users() {
                 <tr key={u.id} className="border-b border-[#F1F5F9] hover:bg-[#F8FAFC]">
                   <td className="px-5 py-3 font-medium text-[#1A202C]">{u.name}</td>
                   <td className="px-5 py-3 text-[#64748B] font-mono text-[12px]">@{u.username}</td>
-                  <td className="px-5 py-3 text-[#1A202C]">{ROLE_LABELS[u.role] ?? u.role}</td>
+                  <td className="px-5 py-3 text-[#1A202C]">{roleLabel(u.role)}</td>
                   <td className="px-5 py-3 text-[#64748B]">{u.department || '—'}</td>
                   <td className="px-5 py-3">
                     <StatusBadge status={u.is_active ? 'ACTIVE' : 'INACTIVE'} />
                   </td>
                   <td className="px-5 py-3">
                     <div className="flex items-center justify-end gap-2">
-                      <ActionBtn title="Edit" onClick={() => openEdit(u)}>
-                        <Edit2 size={13} />
-                      </ActionBtn>
                       <ActionBtn
-                        title={u.is_active ? 'Deactivate' : 'Activate'}
-                        onClick={() => handleToggleStatus(u)}
+                        title="Role, exceptions and eligibility"
+                        onClick={() => setPermissionsFor(u)}
                       >
-                        {u.is_active ? <UserX size={13} /> : <UserCheck size={13} />}
+                        <ShieldCheck size={13} />
                       </ActionBtn>
-                      <ActionBtn title="Reset Password" onClick={() => openResetPassword(u)}>
-                        <KeyRound size={13} />
-                      </ActionBtn>
+                      {canManage && (
+                        <>
+                          <ActionBtn title="Edit" onClick={() => openEdit(u)}>
+                            <Edit2 size={13} />
+                          </ActionBtn>
+                          <ActionBtn
+                            title={u.is_active ? 'Deactivate' : 'Activate'}
+                            onClick={() => handleToggleStatus(u)}
+                          >
+                            {u.is_active ? <UserX size={13} /> : <UserCheck size={13} />}
+                          </ActionBtn>
+                          <ActionBtn title="Reset Password" onClick={() => openResetPassword(u)}>
+                            <KeyRound size={13} />
+                          </ActionBtn>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -314,12 +366,30 @@ export default function Users() {
                     <select
                       value={form.role}
                       onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
-                      className="w-full h-9 px-3 text-[13px] border border-[#E2E8F0] rounded-md text-[#1A202C] bg-white focus:outline-none focus:ring-2 focus:ring-[#1E3A5F] focus:border-transparent"
+                      disabled={!canViewRoles}
+                      className="w-full h-9 px-3 text-[13px] border border-[#E2E8F0] rounded-md text-[#1A202C] bg-white disabled:bg-[#F8FAFC] disabled:text-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F] focus:border-transparent"
                     >
-                      {ALL_ROLES.map((r) => (
-                        <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                      {/* Keyed by role_key, which is immutable — renaming a role
+                          in Roles & Permissions must not detach its users. */}
+                      {assignableRoles.map((r) => (
+                        <option key={r.id} value={r.role_key}>
+                          {r.name}
+                          {r.is_active ? '' : ' (deactivated)'}
+                        </option>
                       ))}
+                      {/* An edited user whose role is not in the list (no
+                          roles.view, or the role was deleted) still needs its
+                          current value present, or the select would silently
+                          reassign them on save. */}
+                      {!assignableRoles.some((r) => r.role_key === form.role) && (
+                        <option value={form.role}>{form.role}</option>
+                      )}
                     </select>
+                    {!canViewRoles && (
+                      <p className="text-[11px] text-[#64748B] mt-1">
+                        You do not have permission to view roles, so this cannot be changed.
+                      </p>
+                    )}
                   </FormField>
                   <FormField label="Department">
                     <input
@@ -395,6 +465,19 @@ export default function Users() {
             </div>
           </form>
         </Modal>
+      )}
+
+      {permissionsFor && currentUser && (
+        <UserPermissionsModal
+          open
+          onClose={() => setPermissionsFor(null)}
+          currentUserId={currentUser.id}
+          userId={permissionsFor.id}
+          userName={permissionsFor.name}
+          canManage={canManage}
+          canViewRoles={canViewRoles}
+          onChanged={loadUsers}
+        />
       )}
     </div>
   );

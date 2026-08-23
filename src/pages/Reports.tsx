@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import Card from '../components/ui/Card';
 import { useAuthStore } from '../stores/authStore';
+import { usePermissionStore } from '../stores/permissionStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import {
   getDocumentRegisterReport,
@@ -52,7 +53,12 @@ interface ReportDef {
   description: string;
   icon: React.ReactNode;
   statusOptions: { value: string; label: string }[];
-  allowedRoles: string[];
+  /**
+   * Permission that makes this report available. Complaints is separate from the
+   * rest because complaint data is narrower than the other registers, which is
+   * why reports.run_complaints exists as its own key.
+   */
+  perm: string;
   fileSlug: string;
 }
 
@@ -67,7 +73,7 @@ const REPORTS: ReportDef[] = [
       { value: 'UNDER PROCESS', label: 'Under Process' },
       { value: 'OBSOLETE',      label: 'Obsolete' },
     ],
-    allowedRoles: ['Admin', 'QualityManager', 'Auditor', 'Employee', 'Viewer'],
+    perm: 'reports.run',
     fileSlug: 'document-register-report',
   },
   {
@@ -79,7 +85,7 @@ const REPORTS: ReportDef[] = [
       { value: 'OPEN',   label: 'Open' },
       { value: 'CLOSED', label: 'Closed' },
     ],
-    allowedRoles: ['Admin', 'QualityManager', 'Auditor'],
+    perm: 'reports.run',
     fileSlug: 'capa-report',
   },
   {
@@ -91,7 +97,7 @@ const REPORTS: ReportDef[] = [
       { value: 'OPEN',   label: 'Open' },
       { value: 'CLOSED', label: 'Closed' },
     ],
-    allowedRoles: ['Admin', 'QualityManager', 'Auditor'],
+    perm: 'reports.run',
     fileSlug: 'risk-report',
   },
   {
@@ -103,7 +109,7 @@ const REPORTS: ReportDef[] = [
       { value: 'OPEN',   label: 'Open' },
       { value: 'CLOSED', label: 'Closed' },
     ],
-    allowedRoles: ['Admin', 'QualityManager'],
+    perm: 'reports.run_complaints',
     fileSlug: 'complaint-report',
   },
   {
@@ -115,7 +121,7 @@ const REPORTS: ReportDef[] = [
       { value: 'OPEN',   label: 'Open' },
       { value: 'CLOSED', label: 'Closed' },
     ],
-    allowedRoles: ['Admin', 'QualityManager', 'Auditor'],
+    perm: 'reports.run',
     fileSlug: 'audit-report',
   },
   {
@@ -128,7 +134,7 @@ const REPORTS: ReportDef[] = [
       { value: 'IN_REVIEW', label: 'In Review' },
       { value: 'CLOSED',    label: 'Closed' },
     ],
-    allowedRoles: ['Admin', 'QualityManager', 'Auditor'],
+    perm: 'reports.run',
     fileSlug: 'non-conformity-report',
   },
 ];
@@ -192,7 +198,7 @@ function getHeadersAndRows(type: ReportType, data: ReportRow[]): { headers: stri
 export default function Reports() {
   const { user } = useAuthStore();
   const { companyName } = useSettingsStore();
-  const role = user?.role ?? 'Viewer';
+  const can = usePermissionStore((s) => s.can);
   const currentUserId = user?.id ?? 0;
 
   const [selected, setSelected] = useState<ReportType | null>(null);
@@ -203,7 +209,7 @@ export default function Reports() {
   const [dateRangeError, setDateRangeError] = useState<string | null>(null);
   const [ran, setRan] = useState(false);
 
-  const availableReports = REPORTS.filter(r => r.allowedRoles.includes(role));
+  const availableReports = REPORTS.filter(r => can(r.perm));
 
   const runReport = async () => {
     if (!selected) return;
@@ -310,7 +316,7 @@ export default function Reports() {
           ))}
           {availableReports.length === 0 && (
             <p className="text-sm text-[#64748B] col-span-3 py-8 text-center">
-              No reports are available for your role.
+              No reports are available with your current permissions.
             </p>
           )}
         </div>

@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   CheckCircle2,
   ShieldAlert,
+  Shield,
   MessageCircle,
   ClipboardCheck,
   AlertOctagon,
@@ -18,6 +19,7 @@ import {
   PanelLeftOpen,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
+import { usePermissionStore } from '../../stores/permissionStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import type { UserRole } from '../../types/user';
 import { ROLE_LABELS } from '../../types/user';
@@ -27,7 +29,12 @@ interface NavItem {
   label: string;
   path: string;
   icon: LucideIcon;
-  roles: UserRole[];
+  /**
+   * Effective permission that reveals this entry. Presentation only — the route
+   * and every command behind it re-check the caller in Rust, so hiding an entry
+   * is a courtesy rather than a control.
+   */
+  perm: string;
 }
 
 interface NavGroup {
@@ -40,31 +47,27 @@ const navGroups: NavGroup[] = [
   {
     label: 'OVERVIEW',
     items: [
-      {
-        label: 'Dashboard',
-        path: '/dashboard',
-        icon: LayoutDashboard,
-        roles: ['Admin', 'QualityManager', 'Auditor', 'Employee', 'Viewer'],
-      },
+      { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, perm: 'dashboard.view' },
     ],
   },
   {
     label: 'QUALITY MANAGEMENT',
     items: [
-      { label: 'CAPA',             path: '/capa',             icon: CheckCircle2,   roles: ['Admin', 'QualityManager', 'Employee'] },
-      { label: 'Risks',            path: '/risks',            icon: ShieldAlert,    roles: ['Admin', 'QualityManager', 'Employee'] },
-      { label: 'Complaints',       path: '/complaints',       icon: MessageCircle,  roles: ['Admin', 'QualityManager', 'Employee'] },
-      { label: 'Audits',           path: '/audits',           icon: ClipboardCheck, roles: ['Admin', 'QualityManager', 'Auditor'] },
-      { label: 'Non-Conformities', path: '/non-conformities', icon: AlertOctagon,   roles: ['Admin', 'QualityManager', 'Auditor'] },
-      { label: 'Documents',        path: '/documents',        icon: FolderOpen,     roles: ['Admin', 'QualityManager', 'Auditor', 'Employee', 'Viewer'] },
+      { label: 'CAPA',             path: '/capa',             icon: CheckCircle2,   perm: 'capa.view' },
+      { label: 'Risks',            path: '/risks',            icon: ShieldAlert,    perm: 'risks.view' },
+      { label: 'Complaints',       path: '/complaints',       icon: MessageCircle,  perm: 'complaints.view' },
+      { label: 'Audits',           path: '/audits',           icon: ClipboardCheck, perm: 'audits.view' },
+      { label: 'Non-Conformities', path: '/non-conformities', icon: AlertOctagon,   perm: 'nc.view' },
+      { label: 'Documents',        path: '/documents',        icon: FolderOpen,     perm: 'documents.view' },
     ],
   },
   {
     label: 'ADMINISTRATION',
     items: [
-      { label: 'Users',   path: '/users',   icon: Users,    roles: ['Admin'] },
-      { label: 'Reports', path: '/reports', icon: BarChart3, roles: ['Admin', 'QualityManager', 'Auditor', 'Viewer'] },
-      { label: 'Backup',  path: '/backup',  icon: Database,  roles: ['Admin'] },
+      { label: 'Users',   path: '/users',   icon: Users,     perm: 'users.view' },
+      { label: 'Roles & Permissions', path: '/roles', icon: Shield, perm: 'roles.view' },
+      { label: 'Reports', path: '/reports', icon: BarChart3, perm: 'reports.view' },
+      { label: 'Backup',  path: '/backup',  icon: Database,  perm: 'backup.view' },
     ],
   },
 ];
@@ -95,6 +98,7 @@ export default function Sidebar({
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const can = usePermissionStore((s) => s.can);
   const { user, logout } = useAuthStore();
   const role = (user?.role ?? 'Viewer') as UserRole;
 
@@ -145,7 +149,7 @@ export default function Sidebar({
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-3">
         {navGroups.map((group) => {
-          const visibleItems = group.items.filter((item) => item.roles.includes(role));
+          const visibleItems = group.items.filter((item) => can(item.perm));
           if (visibleItems.length === 0) return null;
           return (
             <div key={group.label} className={collapsed ? 'mb-1' : 'mb-5'}>
@@ -210,7 +214,7 @@ export default function Sidebar({
                 {user?.name ?? 'User'}
               </p>
               <p className="text-slate-400 text-[11px] truncate leading-tight">
-                {ROLE_LABELS[role]}
+                {ROLE_LABELS[role] ?? role}
               </p>
             </div>
             <button

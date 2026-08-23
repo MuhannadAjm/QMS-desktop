@@ -50,3 +50,23 @@ export async function setUserStatus(currentUserId: number, id: number, isActive:
 export async function resetUserPassword(currentUserId: number, id: number, newPassword: string): Promise<void> {
   return invoke('reset_user_password', { currentUserId, id, newPassword });
 }
+
+/**
+ * Eligibility is stored on the user, not derived from the role, so an
+ * administrator can nominate any active user as a CAPA responsible or lead
+ * auditor without granting them a wider role. Kept separate from updateUser so
+ * it can be toggled without re-submitting the whole record.
+ */
+export async function setUserEligibility(
+  currentUserId: number,
+  id: number,
+  canBeCapaResponsible: boolean,
+  canBeLeadAuditor: boolean,
+): Promise<void> {
+  return invoke<void>('set_user_eligibility', {
+    currentUserId,
+    id,
+    canBeCapaResponsible,
+    canBeLeadAuditor,
+  });
+}

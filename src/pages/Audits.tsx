@@ -3,6 +3,7 @@ import { open as openFilePicker } from '@tauri-apps/plugin-dialog';
 import { listLeadAuditorCandidates } from '../services/adminService';
 import { ClipboardCheck } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
+import { usePermissionStore } from '../stores/permissionStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import * as auditService from '../services/auditService';
 import { exportAuditsCSV, exportAuditsJSON } from '../services/exportService';
@@ -759,9 +760,13 @@ export default function Audits() {
   const { user } = useAuthStore();
   const { companyName } = useSettingsStore();
   const userId = user?.id ?? 0;
-  const role = user?.role ?? '';
-  const canEdit = ['Admin', 'QualityManager'].includes(role);
-  const canAddFindings = ['Admin', 'QualityManager', 'Auditor'].includes(role);
+  // Gating is derived from effective permissions, not from the role name, so a
+  // custom role with these permissions gets the same affordances. Presentation
+  // only: every command re-checks the caller in Rust.
+  const can = usePermissionStore((s) => s.can);
+  const canEdit = can('audits.edit');
+  const canCreate = can('audits.create');
+  const canAddFindings = can('audits.finding_manage');
 
   const [audits, setAudits] = useState<AuditListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -844,7 +849,7 @@ export default function Audits() {
         </div>
         <ModuleToolbar
           canEdit={canEdit}
-          onNew={() => setShowCreate(true)}
+          onNew={canCreate ? () => setShowCreate(true) : undefined}
           newLabel="+ New Audit"
           exportOptions={[
             { label: 'Export CSV', onClick: () => exportAuditsCSV(filtered) },

@@ -122,7 +122,7 @@ export default function Topbar() {
                   {user?.name ?? 'User'}
                 </p>
                 <p className="text-[11px] text-slate-400 leading-tight">
-                  {ROLE_LABELS[(user?.role ?? 'Viewer') as UserRole]}
+                  {ROLE_LABELS[(user?.role ?? 'Viewer') as UserRole] ?? user?.role}
                 </p>
               </div>
             </button>
