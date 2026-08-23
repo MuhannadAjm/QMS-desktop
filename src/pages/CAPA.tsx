@@ -19,11 +19,11 @@ import {
   listCapas, getCapa, createCapa, updateCapa, setCapaStatus,
   getCapaActivity, attachCapaFile, openCapaAttachment, listCapaAttachments,
 } from '../services/capaService';
-import { listUsersMinimal } from '../services/documentService';
+import { listAssignableUsers } from '../services/adminService';
 import { exportCapasCSV, exportCapasJSON } from '../services/exportService';
 import { printCapaRegister } from '../services/printService';
 import type { CapaListItem, CAPAAttachment, CapaActivityEntry } from '../types/capa';
-import { CAPA_TYPES, SOURCE_TYPES, CAPA_PRIORITIES, ROOT_CAUSE_METHODS } from '../types/capa';
+import { CAPA_TYPES, SOURCE_TYPES, CAPA_PRIORITIES, ROOT_CAUSE_METHOD_SUGGESTIONS } from '../types/capa';
 import type { UserMinimal } from '../types/document';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -90,9 +90,13 @@ function priorityCls(p: string | null): string {
 }
 
 function typeCls(t: string): string {
-  return t === 'PREVENTIVE'
-    ? 'bg-[#F3E8FF] text-[#7C3AED]'
-    : 'bg-[#DBEAFE] text-[#1D4ED8]';
+  switch (t) {
+    case 'PREVENTIVE': return 'bg-[#F3E8FF] text-[#7C3AED]';
+    // CORRECTION is an immediate containment fix rather than a root-cause
+    // action, so it gets its own colour instead of reading as CORRECTIVE.
+    case 'CORRECTION': return 'bg-[#FEF3C7] text-[#B45309]';
+    default:           return 'bg-[#DBEAFE] text-[#1D4ED8]';
+  }
 }
 
 // ─── ImportNoticeModal ────────────────────────────────────────────────────────
@@ -363,10 +367,28 @@ function CapaModal({
 
           {textarea('Root Cause', 'root_cause', true, 3, 'Describe the root cause of the issue')}
 
-          {select('Root Cause Method', 'root_cause_method', [
-            { value: '', label: '— None —' },
-            ...ROOT_CAUSE_METHODS.map(m => ({ value: m, label: m })),
-          ])}
+          {/* Free text with suggestions, not a fixed list. Teams use methods
+              beyond the previous four (8D, A3, "5-Why + Pareto"), the column has
+              always been plain TEXT, and existing saved values are preserved
+              because anything typed is accepted. */}
+          <div>
+            <label className="block text-[12px] font-semibold text-[#64748B] mb-1.5 uppercase tracking-wide">
+              Root Cause Method
+            </label>
+            <input
+              type="text"
+              list="root-cause-method-suggestions"
+              value={form.root_cause_method}
+              onChange={e => onChange('root_cause_method', e.target.value)}
+              placeholder="e.g. 5-Why, Fishbone, 8D — or describe your own"
+              className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-[13px] text-[#1A202C] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#2E5080]"
+            />
+            <datalist id="root-cause-method-suggestions">
+              {ROOT_CAUSE_METHOD_SUGGESTIONS.map(m => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+          </div>
 
           {textarea('Action Plan', 'action_plan', true, 4, 'Steps taken or planned to address the root cause')}
 
@@ -712,7 +734,7 @@ function DetailsDrawer({
       </div>
 
       {/* Tab content */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {tab === 'details' && <DetailsTab capa={capa} />}
         {tab === 'action' && <ActionPlanTab capa={capa} />}
         {tab === 'attachments' && (
@@ -803,7 +825,7 @@ export default function CAPA() {
     try {
       const [capaData, userData] = await Promise.all([
         listCapas(user.id),
-        listUsersMinimal(user.id),
+        listAssignableUsers(user.id, 'capa_responsible'),
       ]);
       setCapas(capaData);
       setUsers(userData);

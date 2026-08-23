@@ -1,14 +1,42 @@
 export type CAPAStatus = 'OPEN' | 'CLOSED';
-export type CAPAType = 'CORRECTIVE' | 'PREVENTIVE';
+
+/**
+ * System-fixed enum — NOT administrator-configurable.
+ *
+ * CORRECTION  fixes the symptom of a detected problem.
+ * CORRECTIVE  removes the root cause so it cannot recur.
+ * PREVENTIVE  acts on a potential problem before it occurs.
+ *
+ * These are ISO 9001 concepts rather than business lookup values, so they stay
+ * in code. Must stay in sync with validate_capa_type() in
+ * src-tauri/src/commands/capa.rs.
+ */
+export type CAPAType = 'CORRECTIVE' | 'PREVENTIVE' | 'CORRECTION';
 export type SourceType = 'MANUAL' | 'COMPLAINT' | 'RISK' | 'AUDIT' | 'NC';
 export type CAPAPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-export type RootCauseMethod = '5-Why' | 'Fishbone' | 'Fault Tree' | 'Other';
 
-export const CAPA_TYPES: CAPAType[] = ['CORRECTIVE', 'PREVENTIVE'];
+export const CAPA_TYPES: CAPAType[] = ['CORRECTIVE', 'PREVENTIVE', 'CORRECTION'];
 export const SOURCE_TYPES: SourceType[] = ['MANUAL', 'COMPLAINT', 'RISK', 'AUDIT', 'NC'];
 export const CAPA_PRIORITIES: CAPAPriority[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
-export const ROOT_CAUSE_METHODS: RootCauseMethod[] = ['5-Why', 'Fishbone', 'Fault Tree', 'Other'];
 export const CAPA_STATUSES: CAPAStatus[] = ['OPEN', 'CLOSED'];
+
+/**
+ * Root cause method is FREE TEXT, not a fixed list.
+ *
+ * The former RootCauseMethod union and ROOT_CAUSE_METHODS array constrained the
+ * field to four values. Teams use methods beyond those (8D, A3, Ishikawa
+ * variants, "5-Why + Pareto"), and the column has always been plain TEXT, so
+ * the restriction existed only in the UI. These values are now offered as
+ * datalist suggestions while allowing anything to be typed. No stored value is
+ * migrated or invalidated.
+ */
+export const ROOT_CAUSE_METHOD_SUGGESTIONS: string[] = [
+  '5-Why',
+  'Fishbone',
+  'Fault Tree',
+  '8D',
+  'A3',
+];
 
 export interface CapaListItem {
   id: number;

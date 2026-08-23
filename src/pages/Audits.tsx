@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog';
-import { invoke } from '@tauri-apps/api/core';
+import { listAssignableUsers } from '../services/adminService';
 import { ClipboardCheck } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -26,7 +26,10 @@ function fmtFileSize(bytes: number | null | undefined): string {
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
-interface UserMin { id: number; full_name: string; }
+// Mirrors UserMinimal in src-tauri/src/commands/users.rs, which serialises
+// { id, name, role }. This previously declared `full_name`, so every option
+// label rendered `undefined` - the list was populated but appeared blank.
+interface UserMin { id: number; name: string; role?: string; }
 
 function StatusBadge({ status }: { status: string }) {
   const cls = status === 'CLOSED'
@@ -88,7 +91,7 @@ function AuditModal({ audit, users, userId, onClose, onSaved }: AuditModalProps)
   );
   const [plannedDate, setPlannedDate] = useState(audit?.planned_date?.split('T')[0] ?? '');
   const [scope, setScope] = useState(audit?.scope ?? '');
-  const [standard, setStandard] = useState(audit?.standard ?? 'ISO 9001:2015');
+  const [standard, setStandard] = useState(audit?.standard ?? 'ISO 9001');
   const [auditee, setAuditee] = useState(audit?.auditee ?? '');
   const [summary, setSummary] = useState(audit?.summary ?? '');
   const [saving, setSaving] = useState(false);
@@ -131,7 +134,7 @@ function AuditModal({ audit, users, userId, onClose, onSaved }: AuditModalProps)
           <h2 className="text-lg font-semibold text-[#1E3A5F]">{isEdit ? 'Edit Audit' : 'New Audit'}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
         </div>
-        <div className="overflow-y-auto px-6 py-4 space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
           {error && <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{error}</div>}
 
           <div>
@@ -163,7 +166,7 @@ function AuditModal({ audit, users, userId, onClose, onSaved }: AuditModalProps)
               <select value={auditorUserId} onChange={e => setAuditorUserId(Number(e.target.value))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2E5080]">
                 <option value={0}>— Select Auditor —</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
             </div>
             <div>
@@ -192,7 +195,7 @@ function AuditModal({ audit, users, userId, onClose, onSaved }: AuditModalProps)
               <label className="block text-xs font-semibold text-gray-600 mb-1">Standard / Reference</label>
               <input value={standard} onChange={e => setStandard(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2E5080]"
-                placeholder="e.g. ISO 9001:2015" />
+                placeholder="e.g. ISO 9001" />
             </div>
           </div>
 
@@ -273,7 +276,7 @@ function FindingModal({ finding, auditId, userId, onClose, onSaved }: {
           <h2 className="text-lg font-semibold text-[#1E3A5F]">{isEdit ? 'Edit Finding' : 'Add Finding'}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
         </div>
-        <div className="overflow-y-auto px-6 py-4 space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
           {error && <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{error}</div>}
 
           <div className="grid grid-cols-2 gap-4">
@@ -304,7 +307,7 @@ function FindingModal({ finding, auditId, userId, onClose, onSaved }: {
             <label className="block text-xs font-semibold text-gray-600 mb-1">Clause / Reference</label>
             <input value={clauseRef} onChange={e => setClauseRef(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2E5080]"
-              placeholder="e.g. ISO 9001:2015 Clause 7.4" />
+              placeholder="e.g. ISO 9001 Clause 7.4" />
           </div>
 
           <div>
@@ -559,7 +562,7 @@ function DetailsDrawer({ audit, userId, canEdit, canAddFindings, onClose, onUpda
         </div>
 
         {/* Tab content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
 
           {/* Details */}
           {tab === 'details' && (
@@ -759,6 +762,9 @@ export default function Audits() {
   const [selected, setSelected] = useState<AuditListItem | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  // Previously this fetch failed silently, so a permission rejection looked
+  // identical to "nobody is eligible". Surface it instead.
+  const [usersError, setUsersError] = useState<string | null>(null);
 
   const loadAudits = useCallback(async () => {
     try {
@@ -771,7 +777,9 @@ export default function Audits() {
 
   useEffect(() => {
     loadAudits();
-    invoke<UserMin[]>('list_users_minimal', { currentUserId: userId }).then(setUsers).catch(() => {});
+    listAssignableUsers(userId, 'lead_auditor')
+      .then(us => { setUsers(us); setUsersError(null); })
+      .catch(e => setUsersError(String(e)));
   }, [loadAudits, userId]);
 
   // KPI
@@ -842,6 +850,19 @@ export default function Audits() {
           hasData={filtered.length > 0}
         />
       </div>
+
+      {/* Eligible-auditor load failure. Previously this was swallowed, so a
+          permission rejection was indistinguishable from "nobody is eligible"
+          and the Lead Auditor dropdown just sat empty with no explanation. */}
+      {usersError && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
+          <strong>Lead auditor list unavailable.</strong> {usersError}
+          <div className="text-xs mt-1 text-amber-700">
+            New audits cannot be saved without a lead auditor. Check that at least one active
+            user is marked as eligible in Administration → Users.
+          </div>
+        </div>
+      )}
 
       {/* Filter bar */}
       <FilterBar

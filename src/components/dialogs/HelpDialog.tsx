@@ -47,7 +47,7 @@ export default function HelpDialog({ open, onClose }: Props) {
           </button>
         </div>
 
-        <div className="overflow-y-auto flex-1 px-5 py-5 space-y-5">
+        <div className="overflow-y-auto flex-1 min-h-0 px-5 py-5 space-y-5">
 
           <div>
             <div className="flex items-center gap-2 mb-3">

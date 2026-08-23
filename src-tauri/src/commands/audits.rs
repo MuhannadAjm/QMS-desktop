@@ -324,7 +324,7 @@ pub fn create_audit(
                  datetime('now'), datetime('now'))",
         params![
             &audit_number, &title, &audit_type, &department,
-            &scope, standard.as_deref().or(Some("ISO 9001:2015")),
+            &scope, standard.as_deref().or(Some("ISO 9001")),
             &planned_date, &audit_date,
             auditor_user_id, &auditee, &summary,
             current_user_id

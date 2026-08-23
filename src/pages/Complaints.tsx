@@ -29,7 +29,10 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-interface UserMin { id: number; full_name: string; }
+// Mirrors UserMinimal in src-tauri/src/commands/users.rs, which serialises
+// { id, name, role }. This previously declared `full_name`, so every option
+// label rendered `undefined` - the list was populated but appeared blank.
+interface UserMin { id: number; name: string; role?: string; }
 
 // ── Complaint Modal ───────────────────────────────────────────────────────────
 
@@ -96,7 +99,7 @@ function ComplaintModal({ complaint, users, userId, onClose, onSaved }: Complain
           <h2 className="text-lg font-semibold text-[#1E3A5F]">{isEdit ? 'Edit Complaint' : 'New Complaint'}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
         </div>
-        <div className="overflow-y-auto px-6 py-4 space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
           {error && <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{error}</div>}
 
           <div className="grid grid-cols-2 gap-4">
@@ -157,7 +160,7 @@ function ComplaintModal({ complaint, users, userId, onClose, onSaved }: Complain
               <select value={issuedByUserId} onChange={e => setIssuedByUserId(Number(e.target.value))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2E5080]">
                 <option value={0}>— None —</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
             </div>
           </div>
@@ -409,7 +412,7 @@ function DetailsDrawer({ complaint, userId, canEdit, onClose, onUpdated, users }
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 text-sm">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 text-sm">
           {tab === 'details' && (
             <div className="space-y-3">
               {([
