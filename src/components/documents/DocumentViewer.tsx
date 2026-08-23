@@ -16,6 +16,9 @@ import type { DocumentFileInfo, DocumentListItem } from '../../types/document';
 // an offline desktop product.
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
+/** Served from the app bundle — this is offline software, so there is no CDN. */
+const STANDARD_FONTS_URL = "/pdfjs/standard_fonts/";
+
 /**
  * Controlled document viewer.
  *
@@ -52,6 +55,7 @@ export default function DocumentViewer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [stalled, setStalled] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -76,6 +80,11 @@ export default function DocumentViewer({
         if (cancelled) return;
         loaded = await pdfjsLib.getDocument({
           data: bytes,
+          // pdfjs does not embed the PDF base-14 fonts. Without this, any
+          // document naming Helvetica or Times — which is most of them — leaves
+          // render() waiting forever and the page blank, with nothing logged.
+          // Copied out of node_modules at build time; see scripts/copy-pdfjs-assets.mjs.
+          standardFontDataUrl: STANDARD_FONTS_URL,
           // No scripting, no external resources: this is a viewer for controlled
           // records, not a place to execute what a PDF asks for.
           isEvalSupported: false,
@@ -131,10 +140,29 @@ export default function DocumentViewer({
 
     const task = page.render({ canvasContext: ctx, viewport });
     renderTaskRef.current = task;
+
+    // pdfjs drives its canvas render loop from requestAnimationFrame. If the
+    // host stops delivering frames — a minimised window, a compositor stall —
+    // the promise simply never settles and the page stays blank with nothing
+    // logged. Rather than present an empty document indefinitely, say so and
+    // point at the fallback that does not depend on frames.
+    setStalled(false);
+    const watchdog = window.setTimeout(() => setStalled(true), 8000);
+
     try {
       await task.promise;
-    } catch {
-      // A cancelled render is the normal outcome of zooming or paging quickly.
+      setError(null);
+      setStalled(false);
+    } catch (e) {
+      // Cancelling is the normal outcome of zooming or paging quickly. Anything
+      // else is a real failure and must not be swallowed — a silently blank page
+      // is the worst possible way to present a controlled document.
+      const name = (e as { name?: string })?.name;
+      if (name !== "RenderingCancelledException") {
+        setError(typeof e === "string" ? e : String(e));
+      }
+    } finally {
+      window.clearTimeout(watchdog);
     }
   }, [pdf, pageNo, scale, fitWidth]);
 
@@ -252,6 +280,12 @@ export default function DocumentViewer({
 
       {error && (
         <div className="px-4 py-2 bg-[#7F1D1D] text-[12.5px] text-red-100 shrink-0">{error}</div>
+      )}
+      {stalled && (
+        <div className="px-4 py-2 bg-[#78350F] text-[12.5px] text-amber-100 shrink-0">
+          This page is taking longer than expected to draw. If it does not appear, the window may
+          not be receiving display updates — try restoring the window, or use Open Externally.
+        </div>
       )}
       {busy === 'print' && (
         <div className="px-4 py-2 bg-[#1E3A5F] text-[12.5px] text-blue-100 shrink-0">

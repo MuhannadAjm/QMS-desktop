@@ -81,3 +81,6 @@ ehthumbs.db
 
 # Supabase CLI machine-local scratch (license-admin)
 license-admin/supabase/.temp/
+
+# Vendored at build time from node_modules by scripts/copy-pdfjs-assets.mjs
+public/pdfjs/
