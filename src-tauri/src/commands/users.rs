@@ -20,10 +20,31 @@ pub struct UserListItem {
     pub can_be_lead_auditor: bool,
 }
 
-fn validate_role(role: &str) -> Result<(), String> {
-    match role {
-        "Admin" | "QualityManager" | "Auditor" | "Employee" | "Viewer" => Ok(()),
-        _ => Err(format!("Invalid role: {}", role)),
+/// Validate a role key against the roles table rather than a hard-coded list.
+///
+/// This used to accept only the five built-in strings, which would have made
+/// every administrator-created custom role unassignable: create_user and
+/// update_user would reject "document_controller" outright. Roles are now data,
+/// so the check has to be data-driven too.
+///
+/// Only ACTIVE roles may be assigned — a deactivated role grants nothing, so
+/// putting someone into one would silently strip their access.
+fn validate_role(conn: &rusqlite::Connection, role_key: &str) -> Result<(), String> {
+    let ok: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM roles WHERE role_key = ?1 AND is_active = 1",
+            params![role_key],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("Failed to validate role: {}", e))?;
+
+    if ok > 0 {
+        Ok(())
+    } else {
+        Err(format!(
+            "Invalid or inactive role: {}. Choose an active role from Roles & Permissions.",
+            role_key
+        ))
     }
 }
 
@@ -106,10 +127,10 @@ pub fn create_user(
                 .to_string(),
         );
     }
-    validate_role(&role)?;
     password::validate_password_strength(&password)?;
 
     let conn = db::open_conn()?;
+    validate_role(&conn, &role)?;
 
     let username_taken: i64 = conn
         .query_row(
@@ -201,9 +222,8 @@ pub fn update_user(
     if name.is_empty() {
         return Err("Full name is required".to_string());
     }
-    validate_role(&role)?;
-
     let mut conn = db::open_conn()?;
+    validate_role(&conn, &role)?;
 
     let tx = conn
         .transaction()

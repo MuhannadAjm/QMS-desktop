@@ -501,3 +501,253 @@ mod rbac_tests {
         assert!(admin.contains(&"users.view".to_string()), "Admin keeps directory access");
     }
 }
+
+#[cfg(test)]
+mod propagation_tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    /// Schema mirroring migration 010, plus the exact statements the admin
+    /// commands issue. These tests exercise the real SQL and the real
+    /// assert_control_path_retained invariant; only the Tauri wrapper and
+    /// db::open_conn (which resolves %APPDATA%) are out of scope.
+    fn db() -> Connection {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE roles (id INTEGER PRIMARY KEY, role_key TEXT UNIQUE, name TEXT,
+                is_system INTEGER DEFAULT 0, is_active INTEGER DEFAULT 1);
+             CREATE TABLE permissions (id INTEGER PRIMARY KEY, perm_key TEXT UNIQUE);
+             CREATE TABLE role_permissions (role_id INTEGER, permission_id INTEGER,
+                PRIMARY KEY(role_id, permission_id));
+             CREATE TABLE user_permission_overrides (user_id INTEGER, permission_id INTEGER,
+                effect TEXT, created_at TEXT, updated_at TEXT, PRIMARY KEY(user_id, permission_id));
+             CREATE TABLE users (id INTEGER PRIMARY KEY, full_name TEXT, is_active INTEGER DEFAULT 1,
+                role_id INTEGER);
+
+             INSERT INTO roles (id, role_key, name, is_system) VALUES
+                (1,'Admin','Admin',1), (2,'Custom','Custom Role',0);
+             INSERT INTO permissions (id, perm_key) VALUES
+                (1,'users.manage'), (2,'roles.manage'),
+                (3,'capa.view'), (4,'capa.create'), (5,'capa.edit');
+
+             -- Admin holds the full control path; Custom starts with capa.view only.
+             INSERT INTO role_permissions VALUES (1,1),(1,2),(1,3),(1,4),(1,5), (2,3);
+
+             INSERT INTO users (id, full_name, role_id) VALUES
+                (1,'Alice Admin',1), (2,'Cara Custom',2);",
+        )
+        .unwrap();
+        c
+    }
+
+    fn eff(c: &Connection, uid: i64) -> Vec<String> {
+        let mut v: Vec<String> = effective_permissions(c, uid).unwrap().into_iter().collect();
+        v.sort();
+        v
+    }
+
+    fn grant(c: &Connection, role: i64, perm: i64) {
+        c.execute(
+            "INSERT OR IGNORE INTO role_permissions VALUES (?1, ?2)",
+            params![role, perm],
+        )
+        .unwrap();
+    }
+
+    fn revoke(c: &Connection, role: i64, perm: i64) {
+        c.execute(
+            "DELETE FROM role_permissions WHERE role_id=?1 AND permission_id=?2",
+            params![role, perm],
+        )
+        .unwrap();
+    }
+
+    fn set_override(c: &Connection, uid: i64, perm: i64, effect: &str) {
+        c.execute(
+            "INSERT INTO user_permission_overrides (user_id, permission_id, effect, created_at, updated_at)
+             VALUES (?1,?2,?3,'x','x')
+             ON CONFLICT(user_id, permission_id) DO UPDATE SET effect=excluded.effect",
+            params![uid, perm, effect],
+        )
+        .unwrap();
+    }
+
+    // ── Section 9: template propagation ──────────────────────────────────────
+
+    /// A user with NO override tracks their role template in both directions.
+    /// This is the whole point of storing overrides sparsely.
+    #[test]
+    fn inherited_permission_follows_role_template_changes() {
+        let c = db();
+        assert_eq!(eff(&c, 2), vec!["capa.view"]);
+
+        grant(&c, 2, 4); // template gains capa.create
+        assert_eq!(eff(&c, 2), vec!["capa.create", "capa.view"]);
+
+        revoke(&c, 2, 3); // template loses capa.view
+        assert_eq!(eff(&c, 2), vec!["capa.create"]);
+    }
+
+    /// An explicit ALLOW keeps granting after the template drops the key —
+    /// that is what makes it an override rather than a duplicate of the template.
+    #[test]
+    fn explicit_allow_survives_the_template_losing_that_key() {
+        let c = db();
+        set_override(&c, 2, 5, "ALLOW"); // capa.edit, not in the template
+        assert!(eff(&c, 2).contains(&"capa.edit".to_string()));
+
+        grant(&c, 2, 5);   // template now also grants it
+        revoke(&c, 2, 5);  // …and then loses it again
+        assert!(
+            eff(&c, 2).contains(&"capa.edit".to_string()),
+            "explicit ALLOW must remain effective independently of the template"
+        );
+    }
+
+    /// An explicit DENY keeps denying even after the template grants the key.
+    #[test]
+    fn explicit_deny_survives_the_template_gaining_that_key() {
+        let c = db();
+        set_override(&c, 2, 3, "DENY"); // deny the one key the template grants
+        assert!(eff(&c, 2).is_empty());
+
+        grant(&c, 2, 4);
+        grant(&c, 2, 5);
+        let p = eff(&c, 2);
+        assert!(!p.contains(&"capa.view".to_string()), "DENY must not be overturned by the template");
+        assert!(p.contains(&"capa.create".to_string()), "other template keys still apply");
+    }
+
+    /// Deactivating the role zeroes effective access while PERSISTING overrides,
+    /// and reactivation recomputes from the CURRENT template plus those overrides
+    /// — not from anything cached at deactivation time.
+    #[test]
+    fn deactivation_then_reactivation_recomputes_from_current_template() {
+        let c = db();
+        set_override(&c, 2, 5, "ALLOW");
+        set_override(&c, 2, 3, "DENY");
+        assert_eq!(eff(&c, 2), vec!["capa.edit"]);
+
+        c.execute("UPDATE roles SET is_active=0 WHERE id=2", []).unwrap();
+        assert!(eff(&c, 2).is_empty(), "inactive role grants nothing");
+
+        // Change the template WHILE the role is inactive.
+        grant(&c, 2, 4);
+
+        let stored: i64 = c
+            .query_row("SELECT COUNT(*) FROM user_permission_overrides WHERE user_id=2", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stored, 2, "overrides persist while inert");
+
+        c.execute("UPDATE roles SET is_active=1 WHERE id=2", []).unwrap();
+
+        // capa.view denied, capa.create newly inherited, capa.edit still allowed.
+        assert_eq!(
+            eff(&c, 2),
+            vec!["capa.create", "capa.edit"],
+            "reactivation must reflect the template as it is NOW, plus stored overrides"
+        );
+    }
+
+    // ── Section 10: lockout through the real command statements ──────────────
+    //
+    // Each test performs the exact statement the corresponding command issues,
+    // inside a transaction, then calls the same assert_control_path_retained the
+    // command calls, and asserts the transaction is refused.
+
+    fn control_path_after<F: Fn(&Connection)>(c: &mut Connection, change: F) -> Result<(), String> {
+        let tx = c.transaction().unwrap();
+        change(&tx);
+        let r = assert_control_path_retained(&tx);
+        if r.is_err() { tx.rollback().unwrap(); } else { tx.commit().unwrap(); }
+        r
+    }
+
+    #[test]
+    fn cannot_deactivate_the_final_control_path_user() {
+        let mut c = db();
+        let r = control_path_after(&mut c, |tx| {
+            tx.execute("UPDATE users SET is_active=0 WHERE id=1", []).unwrap();
+        });
+        assert!(r.is_err(), "deactivating the only administrator must be refused");
+        let still: i64 = c.query_row("SELECT is_active FROM users WHERE id=1", [], |r| r.get(0)).unwrap();
+        assert_eq!(still, 1, "rollback must leave the account active");
+    }
+
+    #[test]
+    fn cannot_deny_users_manage_on_the_final_control_path_user() {
+        let mut c = db();
+        let r = control_path_after(&mut c, |tx| {
+            tx.execute(
+                "INSERT INTO user_permission_overrides VALUES (1,1,'DENY','x','x')", [],
+            ).unwrap();
+        });
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn cannot_deny_roles_manage_on_the_final_control_path_user() {
+        let mut c = db();
+        let r = control_path_after(&mut c, |tx| {
+            tx.execute(
+                "INSERT INTO user_permission_overrides VALUES (1,2,'DENY','x','x')", [],
+            ).unwrap();
+        });
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn cannot_move_the_final_control_path_user_to_an_insufficient_role() {
+        let mut c = db();
+        let r = control_path_after(&mut c, |tx| {
+            tx.execute("UPDATE users SET role_id=2 WHERE id=1", []).unwrap();
+        });
+        assert!(r.is_err(), "reassigning the last admin to a role without control keys must be refused");
+    }
+
+    #[test]
+    fn cannot_deactivate_the_role_providing_the_final_control_path() {
+        let mut c = db();
+        let r = control_path_after(&mut c, |tx| {
+            tx.execute("UPDATE roles SET is_active=0 WHERE id=1", []).unwrap();
+        });
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn cannot_strip_a_control_permission_from_the_final_control_path_role() {
+        let mut c = db();
+        let r = control_path_after(&mut c, |tx| {
+            // exactly what set_role_permissions does: wipe then re-insert
+            tx.execute("DELETE FROM role_permissions WHERE role_id=1", []).unwrap();
+            tx.execute("INSERT INTO role_permissions VALUES (1,3),(1,4),(1,5)", []).unwrap();
+        });
+        assert!(r.is_err(), "removing users.manage/roles.manage from the last admin role must be refused");
+
+        let kept: i64 = c
+            .query_row("SELECT COUNT(*) FROM role_permissions WHERE role_id=1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kept, 5, "rollback must restore the whole template");
+    }
+
+    /// The same changes become legal once a SECOND control path exists — and it
+    /// does not have to be the built-in Admin role. The invariant is about
+    /// effective permissions, never the name "Admin".
+    #[test]
+    fn a_second_custom_role_control_path_unblocks_the_change() {
+        let mut c = db();
+        // Give the custom role the full control path and a user holding it.
+        grant(&c, 2, 1);
+        grant(&c, 2, 2);
+        assert_eq!(count_control_users(&c).unwrap(), 2);
+
+        let r = control_path_after(&mut c, |tx| {
+            tx.execute("UPDATE users SET is_active=0 WHERE id=1", []).unwrap();
+        });
+        assert!(r.is_ok(), "deactivating one admin is fine while another control path remains");
+
+        let now: i64 = c.query_row("SELECT is_active FROM users WHERE id=1", [], |r| r.get(0)).unwrap();
+        assert_eq!(now, 0, "the change must actually commit");
+        assert_eq!(count_control_users(&c).unwrap(), 1);
+    }
+}

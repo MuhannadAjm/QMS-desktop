@@ -10,6 +10,7 @@ mod license;
 mod master_data;
 mod non_conformities;
 mod profile;
+mod rbac_admin;
 mod reports;
 mod risks;
 mod settings_cmd;
@@ -76,6 +77,9 @@ pub use risks::{
 };
 pub use settings_cmd::{get_settings, update_setting};
 pub use storage::{get_app_storage_status, initialize_app_storage};
+pub use rbac_admin::{
+    list_permissions, get_my_permissions, list_roles, get_role_permissions, create_role, update_role, set_role_active, set_role_permissions, get_user_rbac, set_user_role, set_user_override, reset_user_overrides,
+};
 pub use users::{
     list_record_owner_candidates,
     list_capa_responsible_candidates, list_lead_auditor_candidates,
