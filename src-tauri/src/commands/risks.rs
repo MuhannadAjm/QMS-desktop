@@ -207,7 +207,7 @@ fn generate_risk_number(conn: &rusqlite::Connection) -> Result<String, String> {
 /// List all risks. Requires any authenticated user.
 #[tauri::command]
 pub fn list_risks(current_user_id: i64) -> Result<Vec<RiskListItem>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "risks.view")?;
 
     let conn = db::open_conn()?;
     let sql = format!("{} ORDER BY r.risk_number ASC", RISK_SQL);
@@ -227,7 +227,7 @@ pub fn list_risks(current_user_id: i64) -> Result<Vec<RiskListItem>, String> {
 /// Get a single risk by ID. Requires any authenticated user.
 #[tauri::command]
 pub fn get_risk(current_user_id: i64, risk_record_id: i64) -> Result<RiskListItem, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "risks.view")?;
     let conn = db::open_conn()?;
     fetch_risk(&conn, risk_record_id)
 }
@@ -250,7 +250,7 @@ pub fn create_risk(
     owner_id: i64,
     review_date: Option<String>,
 ) -> Result<RiskListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "risks.create")?;
 
     let title = title.trim().to_string();
     if title.is_empty() {
@@ -329,7 +329,7 @@ pub fn update_risk(
     owner_id: i64,
     review_date: Option<String>,
 ) -> Result<RiskListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "risks.edit")?;
 
     let title = title.trim().to_string();
     if title.is_empty() {
@@ -394,7 +394,7 @@ pub fn set_risk_status(
     risk_record_id: i64,
     status: String,
 ) -> Result<RiskListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "risks.edit")?;
 
     match status.as_str() {
         "OPEN" | "CLOSED" => {}
@@ -444,7 +444,7 @@ pub fn get_risk_activity(
     current_user_id: i64,
     risk_record_id: i64,
 ) -> Result<Vec<RiskActivityEntry>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "risks.view")?;
 
     let conn = db::open_conn()?;
     let mut stmt = conn
@@ -486,7 +486,7 @@ pub fn attach_risk_file(
     original_file_name: String,
     note: Option<String>,
 ) -> Result<RiskAttachment, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "risks.attach")?;
 
     let ext = std::path::Path::new(&source_file_path)
         .extension()
@@ -568,7 +568,7 @@ pub fn attach_risk_file(
 /// Requires any authenticated user.
 #[tauri::command]
 pub fn open_risk_attachment(current_user_id: i64, attachment_id: i64) -> Result<(), String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "risks.view")?;
 
     let conn = db::open_conn()?;
     let file_path: String = conn
@@ -605,7 +605,7 @@ pub fn list_risk_attachments(
     current_user_id: i64,
     risk_record_id: i64,
 ) -> Result<Vec<RiskAttachment>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "risks.view")?;
 
     let conn = db::open_conn()?;
     let mut stmt = conn
@@ -648,7 +648,7 @@ pub fn create_nc_from_risk(
     current_user_id: i64,
     risk_record_id: i64,
 ) -> Result<RiskListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "nc.create")?;
 
     let conn = db::open_conn()?;
 
@@ -745,7 +745,7 @@ pub fn create_capa_from_risk(
     current_user_id: i64,
     risk_record_id: i64,
 ) -> Result<RiskListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "capa.create")?;
 
     let conn = db::open_conn()?;
 

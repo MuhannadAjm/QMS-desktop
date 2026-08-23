@@ -1,20 +1,9 @@
 use rusqlite::params;
 use crate::db;
 
-// Verify the calling user is an Admin and is active.
-pub fn require_admin(current_user_id: i64) -> Result<(), String> {
-    require_role(current_user_id, &["Admin"])
-}
-
 // Verify the calling user is Admin or QualityManager and is active.
 pub fn require_admin_or_quality_manager(current_user_id: i64) -> Result<(), String> {
     require_role(current_user_id, &["Admin", "QualityManager"])
-}
-
-// Verify the calling user is Admin, QualityManager, or Auditor and is active.
-// Used for audit findings and creating NCs from findings.
-pub fn require_admin_qm_or_auditor(current_user_id: i64) -> Result<(), String> {
-    require_role(current_user_id, &["Admin", "QualityManager", "Auditor"])
 }
 
 // Verify the calling user exists and is active (any role allowed — for read-only commands).
@@ -160,9 +149,45 @@ pub fn effective_permissions(
 }
 
 /// Does this user hold the given permission?
+///
+/// Part of the authorization API surface alongside require_permission. Kept for
+/// call sites that need to branch rather than reject (for example returning a
+/// reduced payload instead of an error).
+#[allow(dead_code)]
 pub fn has_permission(user_id: i64, perm_key: &str) -> Result<bool, String> {
     let conn = db::open_conn()?;
     Ok(effective_permissions(&conn, user_id)?.contains(perm_key))
+}
+
+/// Authorize when ANY one of several permissions is sufficient.
+///
+/// Used by the assignment-candidate APIs: choosing who a CAPA is assigned to is
+/// legitimate for anyone who can create, edit, or assign a CAPA. Requiring one
+/// specific key would deny a user who can genuinely perform the action by
+/// another route.
+pub fn require_any_permission(user_id: i64, perm_keys: &[&str]) -> Result<(), String> {
+    let conn = db::open_conn()?;
+
+    let active: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM users WHERE id = ?1 AND is_active = 1",
+            params![user_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("Failed to check user: {}", e))?;
+    if active == 0 {
+        return Err("Unauthorized: caller not found or account is inactive".to_string());
+    }
+
+    let held = effective_permissions(&conn, user_id)?;
+    if perm_keys.iter().any(|k| held.contains(*k)) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Unauthorized: one of [{}] required",
+            perm_keys.join(", ")
+        ))
+    }
 }
 
 /// Authorize an action, or fail with a message naming the missing permission.

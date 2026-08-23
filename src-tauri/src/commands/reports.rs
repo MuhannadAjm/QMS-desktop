@@ -100,7 +100,7 @@ pub fn get_document_register_report(
     date_from: Option<String>,
     date_to: Option<String>,
 ) -> Result<Vec<DocumentReportRow>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "reports.view")?;
     let conn = db::open_conn()?;
 
     let mut stmt = conn.prepare(
@@ -145,7 +145,7 @@ pub fn get_capa_report(
     date_to: Option<String>,
     responsible_user_id: Option<i64>,
 ) -> Result<Vec<CapaReportRow>, String> {
-    permissions::require_admin_qm_or_auditor(current_user_id)?;
+    permissions::require_permission(current_user_id, "reports.run")?;
     let conn = db::open_conn()?;
 
     let mut stmt = conn.prepare(
@@ -193,7 +193,7 @@ pub fn get_risk_report(
     date_from: Option<String>,
     date_to: Option<String>,
 ) -> Result<Vec<RiskReportRow>, String> {
-    permissions::require_admin_qm_or_auditor(current_user_id)?;
+    permissions::require_permission(current_user_id, "reports.run")?;
     let conn = db::open_conn()?;
 
     let mut stmt = conn.prepare(
@@ -239,7 +239,7 @@ pub fn get_complaint_report(
     date_from: Option<String>,
     date_to: Option<String>,
 ) -> Result<Vec<ComplaintReportRow>, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "reports.run_complaints")?;
     let conn = db::open_conn()?;
 
     let mut stmt = conn.prepare(
@@ -283,7 +283,7 @@ pub fn get_audit_report(
     date_from: Option<String>,
     date_to: Option<String>,
 ) -> Result<Vec<AuditReportRow>, String> {
-    permissions::require_admin_qm_or_auditor(current_user_id)?;
+    permissions::require_permission(current_user_id, "reports.run")?;
     let conn = db::open_conn()?;
 
     let mut stmt = conn.prepare(
@@ -331,7 +331,7 @@ pub fn get_nc_report(
     date_from: Option<String>,
     date_to: Option<String>,
 ) -> Result<Vec<NcReportRow>, String> {
-    permissions::require_admin_qm_or_auditor(current_user_id)?;
+    permissions::require_permission(current_user_id, "reports.run")?;
     let conn = db::open_conn()?;
 
     let mut stmt = conn.prepare(

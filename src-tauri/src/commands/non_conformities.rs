@@ -183,7 +183,7 @@ fn generate_nc_number(conn: &rusqlite::Connection) -> Result<String, String> {
 
 #[tauri::command]
 pub fn list_non_conformities(current_user_id: i64) -> Result<Vec<NcListItem>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "nc.view")?;
     let conn = db::open_conn()?;
     let sql = format!("{} ORDER BY nc.nc_number ASC", NC_SQL);
     let mut stmt = conn.prepare(&sql)
@@ -197,7 +197,7 @@ pub fn list_non_conformities(current_user_id: i64) -> Result<Vec<NcListItem>, St
 
 #[tauri::command]
 pub fn get_non_conformity(current_user_id: i64, nc_id: i64) -> Result<NcListItem, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "nc.view")?;
     let conn = db::open_conn()?;
     fetch_nc(&conn, nc_id)
 }
@@ -214,7 +214,7 @@ pub fn create_non_conformity(
     responsible_user_id: Option<i64>,
     containment_action: Option<String>,
 ) -> Result<NcListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "nc.create")?;
 
     let title = title.trim().to_string();
     if title.is_empty() { return Err("Title is required".to_string()); }
@@ -280,7 +280,7 @@ pub fn update_non_conformity(
     responsible_user_id: Option<i64>,
     containment_action: Option<String>,
 ) -> Result<NcListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "nc.edit")?;
 
     let title = title.trim().to_string();
     if title.is_empty() { return Err("Title is required".to_string()); }
@@ -330,7 +330,7 @@ pub fn set_non_conformity_status(
     nc_id: i64,
     status: String,
 ) -> Result<NcListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "nc.edit")?;
 
     match status.as_str() {
         "OPEN" | "CLOSED" | "IN_REVIEW" => {}
@@ -390,7 +390,7 @@ pub fn create_capa_from_non_conformity(
     current_user_id: i64,
     nc_id: i64,
 ) -> Result<NcListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "capa.create")?;
 
     let conn = db::open_conn()?;
 
@@ -491,7 +491,7 @@ pub fn attach_nc_file(
     original_file_name: String,
     note: Option<String>,
 ) -> Result<NcAttachment, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "nc.attach")?;
 
     let ext = std::path::Path::new(&source_file_path)
         .extension()
@@ -558,7 +558,7 @@ pub fn attach_nc_file(
 
 #[tauri::command]
 pub fn open_nc_attachment(current_user_id: i64, attachment_id: i64) -> Result<(), String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "nc.view")?;
     let conn = db::open_conn()?;
     let file_path: String = conn
         .query_row(
@@ -583,7 +583,7 @@ pub fn list_nc_attachments(
     current_user_id: i64,
     nc_record_id: i64,
 ) -> Result<Vec<NcAttachment>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "nc.view")?;
     let conn = db::open_conn()?;
     let mut stmt = conn.prepare(
         "SELECT a.id, a.file_name, a.file_path, a.file_size,
@@ -618,7 +618,7 @@ pub fn get_non_conformity_activity(
     current_user_id: i64,
     nc_record_id: i64,
 ) -> Result<Vec<NcActivityEntry>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "nc.view")?;
     let conn = db::open_conn()?;
     let mut stmt = conn.prepare(
         "SELECT a.id, a.action, a.description,

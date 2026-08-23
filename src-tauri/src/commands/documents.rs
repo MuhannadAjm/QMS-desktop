@@ -138,7 +138,7 @@ fn fetch_document(conn: &rusqlite::Connection, document_id: i64) -> Result<Docum
 /// List all documents. Requires any authenticated user.
 #[tauri::command]
 pub fn list_documents(current_user_id: i64) -> Result<Vec<DocumentListItem>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "documents.view")?;
 
     let conn = db::open_conn()?;
     let mut stmt = conn
@@ -186,7 +186,7 @@ pub fn list_documents(current_user_id: i64) -> Result<Vec<DocumentListItem>, Str
 /// Get a single document by ID. Requires any authenticated user.
 #[tauri::command]
 pub fn get_document(current_user_id: i64, document_id: i64) -> Result<DocumentListItem, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "documents.view")?;
     let conn = db::open_conn()?;
     fetch_document(&conn, document_id)
 }
@@ -202,7 +202,7 @@ pub fn create_document(
     approval_date: Option<String>,
     description: Option<String>,
 ) -> Result<DocumentListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "documents.create")?;
 
     let title = title.trim().to_string();
     if title.is_empty() {
@@ -266,7 +266,7 @@ pub fn update_document(
     approval_date: Option<String>,
     description: Option<String>,
 ) -> Result<DocumentListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "documents.edit")?;
 
     let title = title.trim().to_string();
     if title.is_empty() {
@@ -325,7 +325,7 @@ pub fn set_document_status(
     document_id: i64,
     status: String,
 ) -> Result<DocumentListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "documents.edit")?;
     validate_status(&status)?;
 
     let conn = db::open_conn()?;
@@ -358,7 +358,7 @@ pub fn attach_document_file(
     original_file_name: String,
     change_summary: Option<String>,
 ) -> Result<DocumentListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "documents.attachment_manage")?;
 
     let ext = std::path::Path::new(&source_path)
         .extension()
@@ -434,7 +434,7 @@ pub fn list_document_revisions(
     current_user_id: i64,
     document_id: i64,
 ) -> Result<Vec<DocumentRevision>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "documents.view")?;
 
     let conn = db::open_conn()?;
     let mut stmt = conn
@@ -476,7 +476,7 @@ pub fn get_document_activity(
     current_user_id: i64,
     document_id: i64,
 ) -> Result<Vec<ActivityEntry>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "documents.view")?;
 
     let conn = db::open_conn()?;
     let mut stmt = conn
@@ -512,7 +512,7 @@ pub fn get_document_activity(
 /// Requires any authenticated user.
 #[tauri::command]
 pub fn open_document_file(current_user_id: i64, document_id: i64) -> Result<(), String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "documents.view")?;
 
     let conn = db::open_conn()?;
     let file_path: Option<String> = conn

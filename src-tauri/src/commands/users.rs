@@ -44,7 +44,7 @@ fn is_valid_username(s: &str) -> bool {
 /// List all users. Requires Admin role.
 #[tauri::command]
 pub fn list_users(current_user_id: i64) -> Result<Vec<UserListItem>, String> {
-    permissions::require_admin(current_user_id)?;
+    permissions::require_permission(current_user_id, "users.view")?;
 
     let conn = db::open_conn()?;
 
@@ -91,7 +91,7 @@ pub fn create_user(
     department: String,
     password: String,
 ) -> Result<UserListItem, String> {
-    permissions::require_admin(current_user_id)?;
+    permissions::require_permission(current_user_id, "users.manage")?;
 
     let name = name.trim().to_string();
     let username = username.trim().to_lowercase();
@@ -141,9 +141,12 @@ pub fn create_user(
     let default_audit = matches!(role.as_str(), "Admin" | "QualityManager" | "Auditor");
 
     conn.execute(
-        "INSERT INTO users (username, full_name, email, role, department, password_hash, is_active,
+        // role_id is resolved from the same role string. Without it a new user
+        // would have NULL role_id and, since the engine fails closed on a missing
+        // role, no permissions at all.
+        "INSERT INTO users (username, full_name, email, role, role_id, department, password_hash, is_active,
                             can_be_capa_responsible, can_be_lead_auditor, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, datetime('now'), datetime('now'))",
+         VALUES (?1, ?2, ?3, ?4, (SELECT id FROM roles WHERE role_key = ?4), ?5, ?6, 1, ?7, ?8, datetime('now'), datetime('now'))",
         params![
             &username, &name, &email, &role, &department, &hash,
             if default_capa { 1 } else { 0 },
@@ -193,7 +196,7 @@ pub fn update_user(
     role: String,
     department: String,
 ) -> Result<UserListItem, String> {
-    permissions::require_admin(current_user_id)?;
+    permissions::require_permission(current_user_id, "users.manage")?;
 
     let name = name.trim().to_string();
     let email = email
@@ -207,20 +210,34 @@ pub fn update_user(
     }
     validate_role(&role)?;
 
-    let conn = db::open_conn()?;
+    let mut conn = db::open_conn()?;
 
-    conn.execute(
-        "UPDATE users SET full_name = ?1, email = ?2, role = ?3, department = ?4,
-         updated_at = datetime('now') WHERE id = ?5",
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to start transaction: {}", e))?;
+
+    // role_id must move with the legacy role string, or a role change would be
+    // invisible to the RBAC engine.
+    tx.execute(
+        "UPDATE users SET full_name = ?1, email = ?2, role = ?3,
+                          role_id = (SELECT id FROM roles WHERE role_key = ?3),
+                          department = ?4, updated_at = datetime('now')
+          WHERE id = ?5",
         params![&name, &email, &role, &department, id],
     )
     .map_err(|e| format!("Failed to update user: {}", e))?;
 
-    let _ = conn.execute(
+    // Demoting the last administrator out of the control path must be refused.
+    permissions::assert_control_path_retained(&tx)?;
+
+    let _ = tx.execute(
         "INSERT INTO activity_log (module, record_id, action, description, performed_by, performed_at)
          VALUES ('users', ?1, 'UPDATED', ?2, ?3, datetime('now'))",
         params![id, format!("User profile updated: {} ({})", &name, &role), current_user_id],
     );
+
+    tx.commit().map_err(|e| format!("Failed to commit user update: {}", e))?;
+    let conn = db::open_conn()?;
 
     let result = conn
         .query_row(
@@ -252,22 +269,34 @@ pub fn update_user(
 /// Activate or deactivate a user account. Requires Admin role.
 #[tauri::command]
 pub fn set_user_status(current_user_id: i64, id: i64, is_active: bool) -> Result<(), String> {
-    permissions::require_admin(current_user_id)?;
+    permissions::require_permission(current_user_id, "users.manage")?;
 
-    let conn = db::open_conn()?;
+    let mut conn = db::open_conn()?;
 
-    conn.execute(
+    // Apply, then assert the invariant on the RESULTING state and roll back if
+    // it fails. Checking after the fact is what makes this correct for every
+    // mutation without having to predict each one's effect on the control path.
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to start transaction: {}", e))?;
+
+    tx.execute(
         "UPDATE users SET is_active = ?1, updated_at = datetime('now') WHERE id = ?2",
         params![is_active as i64, id],
     )
     .map_err(|e| format!("Failed to update user status: {}", e))?;
 
+    permissions::assert_control_path_retained(&tx)?;
+
     let action = if is_active { "ACTIVATED" } else { "DEACTIVATED" };
-    let _ = conn.execute(
+    let _ = tx.execute(
         "INSERT INTO activity_log (module, record_id, action, description, performed_by, performed_at)
          VALUES ('users', ?1, ?2, 'User status changed', ?3, datetime('now'))",
         params![id, action, current_user_id],
     );
+
+    tx.commit()
+        .map_err(|e| format!("Failed to commit user status change: {}", e))?;
 
     Ok(())
 }
@@ -303,7 +332,7 @@ pub fn list_users_minimal(current_user_id: i64) -> Result<Vec<UserMinimal>, Stri
 /// Reset a user's password. Requires Admin role.
 #[tauri::command]
 pub fn reset_user_password(current_user_id: i64, id: i64, new_password: String) -> Result<(), String> {
-    permissions::require_admin(current_user_id)?;
+    permissions::require_permission(current_user_id, "users.manage")?;
 
     password::validate_password_strength(&new_password)?;
     let hash = password::hash_password(&new_password)?;
@@ -337,7 +366,7 @@ pub fn set_user_eligibility(
     can_be_capa_responsible: bool,
     can_be_lead_auditor: bool,
 ) -> Result<(), String> {
-    permissions::require_admin(current_user_id)?;
+    permissions::require_permission(current_user_id, "users.manage")?;
 
     let conn = db::open_conn()?;
 
@@ -528,5 +557,140 @@ mod eligibility_tests {
         assert_eq!(map("lead_auditor"), Some("can_be_lead_auditor"));
         assert_eq!(map("1=1; DROP TABLE users--"), None);
         assert_eq!(map("role"), None);
+    }
+}
+
+// ─── Assignment candidate APIs ───────────────────────────────────────────────
+//
+// Context-specific replacements for the generic list_assignable_users.
+//
+// PRIVACY: these return ONLY a stable id and a display name. No email, no role,
+// no permission data, no account metadata. A user choosing an assignee has no
+// business receiving the user directory, and the previous minimal-user query was
+// the reason ordinary users were being pushed toward users.view.
+//
+// AUTHORIZATION is by business capability, not by user administration. Anyone who
+// may create, edit, or assign a record may see who is eligible to receive it.
+// A read-only user is NOT authorized — and the frontend must therefore only
+// request candidates when it actually needs them (entering a create/edit form),
+// never as part of the page's initial load.
+
+/// The minimum a selector needs. Deliberately narrower than UserMinimal, which
+/// also carries `role`.
+#[derive(Serialize)]
+pub struct AssignmentCandidate {
+    pub id: i64,
+    pub name: String,
+}
+
+fn query_candidates(column: &str) -> Result<Vec<AssignmentCandidate>, String> {
+    let conn = db::open_conn()?;
+
+    // `column` is never caller-supplied — both call sites pass a literal.
+    let sql = format!(
+        "SELECT id, full_name FROM users
+          WHERE is_active = 1 AND {} = 1
+          ORDER BY full_name ASC",
+        column
+    );
+
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("Failed to prepare candidate query: {}", e))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(AssignmentCandidate {
+                id:   row.get(0)?,
+                name: row.get(1)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query candidates: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+/// Active users eligible to be a CAPA responsible person.
+/// Requires the ability to create, edit, or assign a CAPA.
+#[tauri::command]
+pub fn list_capa_responsible_candidates(
+    current_user_id: i64,
+) -> Result<Vec<AssignmentCandidate>, String> {
+    permissions::require_any_permission(
+        current_user_id,
+        &["capa.create", "capa.edit", "capa.assign"],
+    )?;
+    query_candidates("can_be_capa_responsible")
+}
+
+/// Active users eligible to be an audit lead auditor.
+/// Requires the ability to create, edit, or assign an audit.
+#[tauri::command]
+pub fn list_lead_auditor_candidates(
+    current_user_id: i64,
+) -> Result<Vec<AssignmentCandidate>, String> {
+    permissions::require_any_permission(
+        current_user_id,
+        &["audits.create", "audits.edit", "audits.assign"],
+    )?;
+    query_candidates("can_be_lead_auditor")
+}
+
+#[cfg(test)]
+mod candidate_tests {
+    use rusqlite::Connection;
+
+    /// The candidate projection must expose id and name ONLY. If someone widens
+    /// this SELECT later, this test fails and says why.
+    #[test]
+    fn candidate_projection_exposes_only_id_and_name() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE users (
+                id INTEGER PRIMARY KEY, full_name TEXT, email TEXT, role TEXT,
+                password_hash TEXT, department TEXT, is_active INTEGER,
+                can_be_capa_responsible INTEGER, can_be_lead_auditor INTEGER);
+             INSERT INTO users VALUES
+                (1,'Alice','alice@example.com','Admin','$argon2id$SECRET','QA',1,1,1);",
+        )
+        .unwrap();
+
+        let mut stmt = c
+            .prepare("SELECT id, full_name FROM users WHERE is_active = 1 AND can_be_capa_responsible = 1")
+            .unwrap();
+        assert_eq!(stmt.column_count(), 2, "candidate query must project exactly two columns");
+        let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+        assert_eq!(names, vec!["id", "full_name"]);
+        for leaked in ["email", "password_hash", "role", "department"] {
+            assert!(!names.contains(&leaked.to_string()), "{} must not be projected", leaked);
+        }
+    }
+
+    #[test]
+    fn candidates_are_filtered_by_eligibility_and_active_state() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, full_name TEXT, is_active INTEGER,
+                can_be_capa_responsible INTEGER, can_be_lead_auditor INTEGER);
+             INSERT INTO users VALUES
+                (1,'Active Eligible',1,1,0),
+                (2,'Active Ineligible',1,0,1),
+                (3,'Inactive Eligible',0,1,1);",
+        )
+        .unwrap();
+
+        let names = |col: &str| -> Vec<String> {
+            let sql = format!(
+                "SELECT full_name FROM users WHERE is_active = 1 AND {} = 1 ORDER BY full_name",
+                col
+            );
+            let mut s = c.prepare(&sql).unwrap();
+            s.query_map([], |r| r.get::<_, String>(0)).unwrap().filter_map(|r| r.ok()).collect()
+        };
+
+        assert_eq!(names("can_be_capa_responsible"), vec!["Active Eligible"]);
+        assert_eq!(names("can_be_lead_auditor"), vec!["Active Ineligible"]);
     }
 }

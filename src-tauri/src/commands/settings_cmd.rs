@@ -34,7 +34,7 @@ pub fn get_settings() -> Result<Vec<SettingEntry>, String> {
 /// Update a single setting by key. Requires Admin or QualityManager role.
 #[tauri::command]
 pub fn update_setting(current_user_id: i64, key: String, value: String) -> Result<(), String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "settings.manage")?;
 
     let key = key.trim().to_string();
     if key.is_empty() {

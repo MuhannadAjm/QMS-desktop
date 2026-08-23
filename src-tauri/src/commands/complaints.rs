@@ -180,7 +180,7 @@ fn generate_complaint_number(conn: &rusqlite::Connection) -> Result<String, Stri
 /// List all complaints. Requires any authenticated user.
 #[tauri::command]
 pub fn list_complaints(current_user_id: i64) -> Result<Vec<ComplaintListItem>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "complaints.view")?;
 
     let conn = db::open_conn()?;
     let sql = format!("{} ORDER BY c.complaint_number ASC", COMPLAINT_SQL);
@@ -200,7 +200,7 @@ pub fn list_complaints(current_user_id: i64) -> Result<Vec<ComplaintListItem>, S
 /// Get a single complaint by ID. Requires any authenticated user.
 #[tauri::command]
 pub fn get_complaint(current_user_id: i64, complaint_record_id: i64) -> Result<ComplaintListItem, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "complaints.view")?;
     let conn = db::open_conn()?;
     fetch_complaint(&conn, complaint_record_id)
 }
@@ -220,7 +220,7 @@ pub fn create_complaint(
     root_cause: Option<String>,
     resolution: Option<String>,
 ) -> Result<ComplaintListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "complaints.create")?;
 
     let customer_name = customer_name.trim().to_string();
     if customer_name.is_empty() {
@@ -306,7 +306,7 @@ pub fn update_complaint(
     root_cause: Option<String>,
     resolution: Option<String>,
 ) -> Result<ComplaintListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "complaints.edit")?;
 
     let customer_name = customer_name.trim().to_string();
     if customer_name.is_empty() {
@@ -373,7 +373,7 @@ pub fn set_complaint_status(
     complaint_record_id: i64,
     status: String,
 ) -> Result<ComplaintListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "complaints.edit")?;
 
     match status.as_str() {
         "OPEN" | "CLOSED" => {}
@@ -423,7 +423,7 @@ pub fn get_complaint_activity(
     current_user_id: i64,
     complaint_record_id: i64,
 ) -> Result<Vec<ComplaintActivityEntry>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "complaints.view")?;
 
     let conn = db::open_conn()?;
     let mut stmt = conn
@@ -465,7 +465,7 @@ pub fn attach_complaint_file(
     original_file_name: String,
     note: Option<String>,
 ) -> Result<ComplaintAttachment, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "complaints.attach")?;
 
     let ext = std::path::Path::new(&source_file_path)
         .extension()
@@ -547,7 +547,7 @@ pub fn attach_complaint_file(
 /// Requires any authenticated user.
 #[tauri::command]
 pub fn open_complaint_attachment(current_user_id: i64, attachment_id: i64) -> Result<(), String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "complaints.view")?;
 
     let conn = db::open_conn()?;
     let file_path: String = conn
@@ -584,7 +584,7 @@ pub fn list_complaint_attachments(
     current_user_id: i64,
     complaint_record_id: i64,
 ) -> Result<Vec<ComplaintAttachment>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "complaints.view")?;
 
     let conn = db::open_conn()?;
     let mut stmt = conn
@@ -627,7 +627,7 @@ pub fn create_nc_from_complaint(
     current_user_id: i64,
     complaint_record_id: i64,
 ) -> Result<ComplaintListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "nc.create")?;
 
     let conn = db::open_conn()?;
 
@@ -732,7 +732,7 @@ pub fn create_capa_from_complaint(
     current_user_id: i64,
     complaint_record_id: i64,
 ) -> Result<ComplaintListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "capa.create")?;
 
     let conn = db::open_conn()?;
 

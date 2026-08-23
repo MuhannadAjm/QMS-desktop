@@ -208,7 +208,7 @@ fn generate_capa_number(conn: &rusqlite::Connection) -> Result<String, String> {
 /// List all CAPAs with is_overdue computed. Requires any authenticated user.
 #[tauri::command]
 pub fn list_capas(current_user_id: i64) -> Result<Vec<CapaListItem>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "capa.view")?;
 
     let conn = db::open_conn()?;
     let sql = format!("{} ORDER BY c.capa_number ASC", CAPA_SQL);
@@ -228,7 +228,7 @@ pub fn list_capas(current_user_id: i64) -> Result<Vec<CapaListItem>, String> {
 /// Get a single CAPA by ID. Requires any authenticated user.
 #[tauri::command]
 pub fn get_capa(current_user_id: i64, capa_record_id: i64) -> Result<CapaListItem, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "capa.view")?;
     let conn = db::open_conn()?;
     fetch_capa(&conn, capa_record_id)
 }
@@ -249,7 +249,7 @@ pub fn create_capa(
     description: Option<String>,
     priority: String,
 ) -> Result<CapaListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "capa.create")?;
 
     let title = title.trim().to_string();
     if title.is_empty() {
@@ -341,7 +341,7 @@ pub fn update_capa(
     priority: String,
     effectiveness_check: Option<String>,
 ) -> Result<CapaListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "capa.edit")?;
 
     let title = title.trim().to_string();
     if title.is_empty() {
@@ -422,7 +422,7 @@ pub fn set_capa_status(
     status: String,
     effectiveness_check: Option<String>,
 ) -> Result<CapaListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "capa.edit")?;
 
     match status.as_str() {
         "OPEN" | "CLOSED" => {}
@@ -484,7 +484,7 @@ pub fn get_capa_activity(
     current_user_id: i64,
     capa_record_id: i64,
 ) -> Result<Vec<CapaActivityEntry>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "capa.view")?;
 
     let conn = db::open_conn()?;
     let mut stmt = conn
@@ -526,7 +526,7 @@ pub fn attach_capa_file(
     original_file_name: String,
     note: Option<String>,
 ) -> Result<CAPAAttachment, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "capa.attach")?;
 
     let ext = std::path::Path::new(&source_file_path)
         .extension()
@@ -608,7 +608,7 @@ pub fn attach_capa_file(
 /// Requires any authenticated user.
 #[tauri::command]
 pub fn open_capa_attachment(current_user_id: i64, attachment_id: i64) -> Result<(), String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "capa.view")?;
 
     let conn = db::open_conn()?;
     let file_path: String = conn
@@ -645,7 +645,7 @@ pub fn list_capa_attachments(
     current_user_id: i64,
     capa_record_id: i64,
 ) -> Result<Vec<CAPAAttachment>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "capa.view")?;
 
     let conn = db::open_conn()?;
     let mut stmt = conn

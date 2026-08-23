@@ -75,7 +75,7 @@ fn count(conn: &rusqlite::Connection, sql: &str) -> Result<i64, String> {
 
 #[tauri::command]
 pub fn get_dashboard_summary(current_user_id: i64) -> Result<DashboardSummary, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "dashboard.view")?;
     let conn = db::open_conn()?;
 
     Ok(DashboardSummary {
@@ -113,7 +113,7 @@ pub fn get_dashboard_recent_activity(
     current_user_id: i64,
     limit: i64,
 ) -> Result<Vec<DashboardActivity>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "dashboard.view")?;
     let conn = db::open_conn()?;
 
     let mut stmt = conn.prepare(
@@ -150,7 +150,7 @@ pub fn get_dashboard_overdue_capas(
     current_user_id: i64,
     limit: i64,
 ) -> Result<Vec<OverdueCapa>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "dashboard.view")?;
     let conn = db::open_conn()?;
 
     let mut stmt = conn.prepare(
@@ -188,7 +188,7 @@ pub fn get_dashboard_high_risks(
     current_user_id: i64,
     limit: i64,
 ) -> Result<Vec<HighRiskItem>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "dashboard.view")?;
     let conn = db::open_conn()?;
 
     let mut stmt = conn.prepare(
@@ -224,7 +224,7 @@ pub fn get_dashboard_open_ncs(
     current_user_id: i64,
     limit: i64,
 ) -> Result<Vec<OpenNcItem>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "dashboard.view")?;
     let conn = db::open_conn()?;
 
     let mut stmt = conn.prepare(

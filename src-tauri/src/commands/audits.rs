@@ -259,7 +259,7 @@ fn generate_finding_number(conn: &rusqlite::Connection, audit_id: i64) -> Result
 
 #[tauri::command]
 pub fn list_audits(current_user_id: i64) -> Result<Vec<AuditListItem>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "audits.view")?;
     let conn = db::open_conn()?;
     let sql = format!("{} ORDER BY a.audit_number ASC", AUDIT_SQL);
     let mut stmt = conn.prepare(&sql)
@@ -273,7 +273,7 @@ pub fn list_audits(current_user_id: i64) -> Result<Vec<AuditListItem>, String> {
 
 #[tauri::command]
 pub fn get_audit(current_user_id: i64, audit_record_id: i64) -> Result<AuditListItem, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "audits.view")?;
     let conn = db::open_conn()?;
     fetch_audit(&conn, audit_record_id)
 }
@@ -292,7 +292,7 @@ pub fn create_audit(
     auditee: Option<String>,
     summary: Option<String>,
 ) -> Result<AuditListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "audits.create")?;
 
     let title = title.trim().to_string();
     if title.is_empty() { return Err("Title is required".to_string()); }
@@ -359,7 +359,7 @@ pub fn update_audit(
     auditee: Option<String>,
     summary: Option<String>,
 ) -> Result<AuditListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "audits.edit")?;
 
     let title = title.trim().to_string();
     if title.is_empty() { return Err("Title is required".to_string()); }
@@ -410,7 +410,7 @@ pub fn set_audit_status(
     audit_record_id: i64,
     status: String,
 ) -> Result<AuditListItem, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "audits.edit")?;
 
     match status.as_str() {
         "OPEN" | "CLOSED" => {}
@@ -455,7 +455,7 @@ pub fn list_audit_findings(
     current_user_id: i64,
     audit_record_id: i64,
 ) -> Result<Vec<AuditFinding>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "audits.view")?;
     let conn = db::open_conn()?;
     let sql = format!("{} WHERE f.audit_id = ?1 ORDER BY f.finding_number ASC", FINDING_SQL);
     let mut stmt = conn.prepare(&sql)
@@ -478,7 +478,7 @@ pub fn add_audit_finding(
     evidence: Option<String>,
     recommended_action: Option<String>,
 ) -> Result<AuditFinding, String> {
-    permissions::require_admin_qm_or_auditor(current_user_id)?;
+    permissions::require_permission(current_user_id, "audits.finding_manage")?;
 
     validate_finding_type(&finding_type)?;
     let description = description.trim().to_string();
@@ -546,7 +546,7 @@ pub fn update_audit_finding(
     evidence: Option<String>,
     recommended_action: Option<String>,
 ) -> Result<AuditFinding, String> {
-    permissions::require_admin_qm_or_auditor(current_user_id)?;
+    permissions::require_permission(current_user_id, "audits.finding_manage")?;
 
     validate_finding_type(&finding_type)?;
     let description = description.trim().to_string();
@@ -600,7 +600,7 @@ pub fn create_nc_from_audit_finding(
     current_user_id: i64,
     finding_id: i64,
 ) -> Result<AuditFinding, String> {
-    permissions::require_admin_qm_or_auditor(current_user_id)?;
+    permissions::require_permission(current_user_id, "audits.finding_manage")?;
 
     let conn = db::open_conn()?;
 
@@ -724,7 +724,7 @@ pub fn attach_audit_file(
     original_file_name: String,
     note: Option<String>,
 ) -> Result<AuditAttachment, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "audits.attach")?;
 
     let ext = std::path::Path::new(&source_file_path)
         .extension()
@@ -791,7 +791,7 @@ pub fn attach_audit_file(
 
 #[tauri::command]
 pub fn open_audit_attachment(current_user_id: i64, attachment_id: i64) -> Result<(), String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "audits.view")?;
     let conn = db::open_conn()?;
     let file_path: String = conn
         .query_row(
@@ -816,7 +816,7 @@ pub fn list_audit_attachments(
     current_user_id: i64,
     audit_record_id: i64,
 ) -> Result<Vec<AuditAttachment>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "audits.view")?;
     let conn = db::open_conn()?;
     let mut stmt = conn.prepare(
         "SELECT a.id, a.file_name, a.file_path, a.file_size,
@@ -851,7 +851,7 @@ pub fn get_audit_activity(
     current_user_id: i64,
     audit_record_id: i64,
 ) -> Result<Vec<AuditActivityEntry>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "audits.view")?;
     let conn = db::open_conn()?;
     let mut stmt = conn.prepare(
         "SELECT a.id, a.action, a.description,

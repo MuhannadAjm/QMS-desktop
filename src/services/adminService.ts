@@ -155,3 +155,28 @@ export async function setUserEligibility(
     currentUserId, id, canBeCapaResponsible, canBeLeadAuditor,
   });
 }
+
+// ── Assignment candidates (context-aware, privacy-minimal) ───────────────────
+
+/** Only what a selector needs: stable id + display name. No email, role, or permissions. */
+export interface AssignmentCandidate {
+  id: number;
+  name: string;
+}
+
+/**
+ * Users eligible to be a CAPA responsible person.
+ *
+ * Authorized by CAPA business capability (create/edit/assign) - NOT by user
+ * administration rights. A read-only user is correctly denied, so callers must
+ * only request this when actually opening a create/edit form, never during a
+ * page load, or read-only users would see a spurious error.
+ */
+export async function listCapaResponsibleCandidates(currentUserId: number): Promise<AssignmentCandidate[]> {
+  return invoke<AssignmentCandidate[]>("list_capa_responsible_candidates", { currentUserId });
+}
+
+/** Users eligible to be an audit lead auditor. Authorized by audit create/edit/assign. */
+export async function listLeadAuditorCandidates(currentUserId: number): Promise<AssignmentCandidate[]> {
+  return invoke<AssignmentCandidate[]>("list_lead_auditor_candidates", { currentUserId });
+}

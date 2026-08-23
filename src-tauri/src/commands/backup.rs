@@ -138,7 +138,7 @@ fn list_backups(backups_dir: &Path) -> Vec<BackupEntry> {
 /// All authenticated users can view backup status (read-only). Create/restore is Admin only.
 #[tauri::command]
 pub fn get_backup_status(current_user_id: i64) -> Result<BackupStatus, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "backup.view")?;
     let paths = storage::get_storage_paths()?;
 
     let db_size = std::fs::metadata(&paths.database)
@@ -166,7 +166,7 @@ pub fn create_local_backup(
     current_user_id: i64,
     destination_path: Option<String>,
 ) -> Result<String, String> {
-    permissions::require_admin(current_user_id)?;
+    permissions::require_permission(current_user_id, "backup.create")?;
     let paths = storage::get_storage_paths()?;
 
     let parent_dir: PathBuf = match destination_path {
@@ -225,7 +225,7 @@ pub fn create_local_backup(
 /// Open the default backups folder in Windows Explorer. Admin only.
 #[tauri::command]
 pub fn open_backups_folder(current_user_id: i64) -> Result<(), String> {
-    permissions::require_admin(current_user_id)?;
+    permissions::require_permission(current_user_id, "backup.create")?;
     let paths = storage::get_storage_paths()?;
 
     std::fs::create_dir_all(&paths.backups)
@@ -246,7 +246,7 @@ pub fn validate_backup_path(
     current_user_id: i64,
     backup_path: String,
 ) -> Result<String, String> {
-    permissions::require_admin(current_user_id)?;
+    permissions::require_permission(current_user_id, "backup.create")?;
     let path = PathBuf::from(&backup_path);
 
     if !path.exists() {
@@ -284,7 +284,7 @@ pub fn restore_local_backup(
     backup_path: String,
     preserve_license: bool,
 ) -> Result<String, String> {
-    permissions::require_admin(current_user_id)?;
+    permissions::require_permission(current_user_id, "backup.restore")?;
     let backup_dir = PathBuf::from(&backup_path);
 
     if !backup_dir.exists() || !backup_dir.is_dir() {
@@ -366,7 +366,7 @@ pub fn validate_import_backup(
     current_user_id: i64,
     backup_path: String,
 ) -> Result<String, String> {
-    permissions::require_admin(current_user_id)?;
+    permissions::require_permission(current_user_id, "backup.restore")?;
     let path = PathBuf::from(&backup_path);
 
     if !path.exists() {
@@ -403,7 +403,7 @@ pub fn validate_import_backup(
 
 #[tauri::command]
 pub fn delete_backup(current_user_id: i64, backup_path: String) -> Result<(), String> {
-    permissions::require_admin(current_user_id)?;
+    permissions::require_permission(current_user_id, "backup.create")?;
 
     let path = PathBuf::from(&backup_path);
 

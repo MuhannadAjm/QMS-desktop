@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog';
-import { listAssignableUsers } from '../services/adminService';
+import { listLeadAuditorCandidates } from '../services/adminService';
 import { ClipboardCheck } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -74,14 +74,25 @@ function FindingTypeBadge({ type }: { type: string }) {
 
 interface AuditModalProps {
   audit: AuditListItem | null;
-  users: UserMin[];
   userId: number;
   onClose: () => void;
   onSaved: (a: AuditListItem) => void;
 }
 
-function AuditModal({ audit, users, userId, onClose, onSaved }: AuditModalProps) {
+function AuditModal({ audit, userId, onClose, onSaved }: AuditModalProps) {
   const isEdit = !!audit;
+  // Candidates are fetched here rather than by the page. They require audit
+  // create/edit/assign permission, so a page-level fetch would either fail or
+  // show a spurious authorization error to a legitimate read-only viewer.
+  const [users, setUsers] = useState<UserMin[]>([]);
+  const [candidateError, setCandidateError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listLeadAuditorCandidates(userId)
+      .then(cs => { if (!cancelled) { setUsers(cs); setCandidateError(null); } })
+      .catch(e => { if (!cancelled) setCandidateError(String(e)); });
+    return () => { cancelled = true; };
+  }, [userId]);
   const [title, setTitle] = useState(audit?.title ?? '');
   const [auditType, setAuditType] = useState(audit?.audit_type ?? 'Internal Audit');
   const [department, setDepartment] = useState(audit?.department ?? '');
@@ -135,7 +146,7 @@ function AuditModal({ audit, users, userId, onClose, onSaved }: AuditModalProps)
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
-          {error && <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{error}</div>}
+          {(error || candidateError) && <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{error || candidateError}</div>}
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Audit Title <span className="text-red-500">*</span></label>
@@ -455,9 +466,8 @@ function ImportNoticeModal({ onClose }: { onClose: () => void }) {
 
 type DrawerTab = 'details' | 'findings' | 'attachments' | 'activity';
 
-function DetailsDrawer({ audit, userId, canEdit, canAddFindings, onClose, onUpdated, users }: {
+function DetailsDrawer({ audit, userId, canEdit, canAddFindings, onClose, onUpdated }: {
   audit: AuditListItem; userId: number; canEdit: boolean; canAddFindings: boolean;
-  users: UserMin[];
   onClose: () => void; onUpdated: (a: AuditListItem) => void;
 }) {
   const [tab, setTab] = useState<DrawerTab>('details');
@@ -700,7 +710,7 @@ function DetailsDrawer({ audit, userId, canEdit, canAddFindings, onClose, onUpda
 
       {/* Sub-modals */}
       {showEdit && (
-        <AuditModal audit={audit} users={users} userId={userId}
+        <AuditModal audit={audit} userId={userId}
           onClose={() => setShowEdit(false)}
           onSaved={a => { onUpdated(a); setShowEdit(false); }} />
       )}
@@ -754,7 +764,6 @@ export default function Audits() {
   const canAddFindings = ['Admin', 'QualityManager', 'Auditor'].includes(role);
 
   const [audits, setAudits] = useState<AuditListItem[]>([]);
-  const [users, setUsers] = useState<UserMin[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -762,9 +771,6 @@ export default function Audits() {
   const [selected, setSelected] = useState<AuditListItem | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  // Previously this fetch failed silently, so a permission rejection looked
-  // identical to "nobody is eligible". Surface it instead.
-  const [usersError, setUsersError] = useState<string | null>(null);
 
   const loadAudits = useCallback(async () => {
     try {
@@ -777,9 +783,7 @@ export default function Audits() {
 
   useEffect(() => {
     loadAudits();
-    listAssignableUsers(userId, 'lead_auditor')
-      .then(us => { setUsers(us); setUsersError(null); })
-      .catch(e => setUsersError(String(e)));
+
   }, [loadAudits, userId]);
 
   // KPI
@@ -851,20 +855,7 @@ export default function Audits() {
         />
       </div>
 
-      {/* Eligible-auditor load failure. Previously this was swallowed, so a
-          permission rejection was indistinguishable from "nobody is eligible"
-          and the Lead Auditor dropdown just sat empty with no explanation. */}
-      {usersError && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
-          <strong>Lead auditor list unavailable.</strong> {usersError}
-          <div className="text-xs mt-1 text-amber-700">
-            New audits cannot be saved without a lead auditor. Check that at least one active
-            user is marked as eligible in Administration → Users.
-          </div>
-        </div>
-      )}
-
-      {/* Filter bar */}
+            {/* Filter bar */}
       <FilterBar
         search={search}
         onSearchChange={setSearch}
@@ -929,7 +920,7 @@ export default function Audits() {
 
       {/* Modals */}
       {showCreate && (
-        <AuditModal audit={null} users={users} userId={userId}
+        <AuditModal audit={null} userId={userId}
           onClose={() => setShowCreate(false)}
           onSaved={a => { setAudits(prev => [a, ...prev]); setShowCreate(false); }} />
       )}
@@ -942,7 +933,6 @@ export default function Audits() {
           userId={userId}
           canEdit={canEdit}
           canAddFindings={canAddFindings}
-          users={users}
           onClose={() => setSelected(null)}
           onUpdated={handleUpdated}
         />

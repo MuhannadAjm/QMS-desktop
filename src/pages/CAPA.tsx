@@ -19,12 +19,12 @@ import {
   listCapas, getCapa, createCapa, updateCapa, setCapaStatus,
   getCapaActivity, attachCapaFile, openCapaAttachment, listCapaAttachments,
 } from '../services/capaService';
-import { listAssignableUsers } from '../services/adminService';
+import { listCapaResponsibleCandidates } from '../services/adminService';
+import type { AssignmentCandidate } from '../services/adminService';
 import { exportCapasCSV, exportCapasJSON } from '../services/exportService';
 import { printCapaRegister } from '../services/printService';
 import type { CapaListItem, CAPAAttachment, CapaActivityEntry } from '../types/capa';
 import { CAPA_TYPES, SOURCE_TYPES, CAPA_PRIORITIES, ROOT_CAUSE_METHOD_SUGGESTIONS } from '../types/capa';
-import type { UserMinimal } from '../types/document';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -257,7 +257,7 @@ function CapaModal({
   mode: 'create' | 'edit';
   form: CapaForm;
   onChange: (field: keyof CapaForm, value: string) => void;
-  users: UserMinimal[];
+  users: AssignmentCandidate[];
   loading: boolean;
   error: string | null;
   onClose: () => void;
@@ -356,7 +356,7 @@ function CapaModal({
               >
                 <option value="">— Select person —</option>
                 {users.map(u => (
-                  <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                  <option key={u.id} value={u.id}>{u.name}</option>
                 ))}
               </select>
             </div>
@@ -771,7 +771,8 @@ export default function CAPA() {
 
   // Data
   const [capas, setCapas] = useState<CapaListItem[]>([]);
-  const [users, setUsers] = useState<UserMinimal[]>([]);
+  // AssignmentCandidate is deliberately narrower than UserMinimal: id + name only.
+  const [users, setUsers] = useState<AssignmentCandidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -797,6 +798,9 @@ export default function CAPA() {
 
   // Create/Edit modal
   const [modalOpen, setModalOpen] = useState(false);
+  // Surfaced in the form when the candidate list cannot be loaded, instead of
+  // presenting an empty dropdown as if nobody were eligible.
+  const [candidateError, setCandidateError] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [form, setForm] = useState<CapaForm>(EMPTY_FORM);
   const [modalLoading, setModalLoading] = useState(false);
@@ -816,6 +820,18 @@ export default function CAPA() {
   // Import notice
   const [importNoticeOpen, setImportNoticeOpen] = useState(false);
 
+  // Candidates require CAPA create/edit/assign permission, so they are fetched
+  // only while a form that actually needs them is open. Fetching them on page
+  // load would make the whole page fail for a legitimate read-only viewer.
+  useEffect(() => {
+    if (!modalOpen || !user) return;
+    let cancelled = false;
+    listCapaResponsibleCandidates(user.id)
+      .then(cs => { if (!cancelled) { setUsers(cs); setCandidateError(null); } })
+      .catch(e => { if (!cancelled) setCandidateError(String(e)); });
+    return () => { cancelled = true; };
+  }, [modalOpen, user]);
+
   // ── Load ────────────────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
@@ -823,12 +839,12 @@ export default function CAPA() {
     setLoading(true);
     setError(null);
     try {
-      const [capaData, userData] = await Promise.all([
-        listCapas(user.id),
-        listAssignableUsers(user.id, 'capa_responsible'),
-      ]);
+      // Candidates are NOT fetched here. They require CAPA create/edit/assign
+      // permission, so including them in this Promise.all made the whole page
+      // fail for read-only users who are perfectly entitled to view CAPAs.
+      // They are loaded on demand when a create/edit form opens instead.
+      const capaData = await listCapas(user.id);
       setCapas(capaData);
-      setUsers(userData);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -1289,7 +1305,7 @@ export default function CAPA() {
         onChange={handleFormChange}
         users={users}
         loading={modalLoading}
-        error={modalError}
+        error={modalError ?? candidateError}
         onClose={() => setModalOpen(false)}
         onSubmit={handleModalSubmit}
       />

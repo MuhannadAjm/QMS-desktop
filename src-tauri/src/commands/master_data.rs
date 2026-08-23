@@ -75,14 +75,14 @@ fn log_admin_activity(
 /// Any authenticated user may read these — they are selectable values, not settings.
 #[tauri::command]
 pub fn list_risk_sources(current_user_id: i64) -> Result<Vec<RiskSource>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "masterdata.view")?;
     query_risk_sources(true)
 }
 
 /// Every risk source including deactivated ones. Administration screen only.
 #[tauri::command]
 pub fn list_all_risk_sources(current_user_id: i64) -> Result<Vec<RiskSource>, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "masterdata.manage")?;
     query_risk_sources(false)
 }
 
@@ -119,7 +119,7 @@ fn query_risk_sources(active_only: bool) -> Result<Vec<RiskSource>, String> {
 
 #[tauri::command]
 pub fn create_risk_source(current_user_id: i64, name: String) -> Result<i64, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "masterdata.manage")?;
 
     let name = name.trim().to_string();
     if name.is_empty() {
@@ -186,7 +186,7 @@ pub fn rename_risk_source(
     id: i64,
     new_name: String,
 ) -> Result<i64, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "masterdata.manage")?;
 
     let new_name = new_name.trim().to_string();
     if new_name.is_empty() {
@@ -260,7 +260,7 @@ pub fn set_risk_source_active(
     id: i64,
     is_active: bool,
 ) -> Result<(), String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "masterdata.manage")?;
 
     let conn = db::open_conn()?;
 
@@ -287,7 +287,7 @@ pub fn set_risk_source_active(
 /// Persist a new display order. `ordered_ids` is the full list in the desired order.
 #[tauri::command]
 pub fn reorder_risk_sources(current_user_id: i64, ordered_ids: Vec<i64>) -> Result<(), String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "masterdata.manage")?;
 
     let mut conn = db::open_conn()?;
     let tx = conn
@@ -311,7 +311,7 @@ pub fn reorder_risk_sources(current_user_id: i64, ordered_ids: Vec<i64>) -> Resu
 /// Active customers for the Complaint customer selector.
 #[tauri::command]
 pub fn list_customer_options(current_user_id: i64) -> Result<Vec<CustomerOption>, String> {
-    permissions::require_authenticated(current_user_id)?;
+    permissions::require_permission(current_user_id, "masterdata.view")?;
 
     let conn = db::open_conn()?;
     let mut stmt = conn
@@ -343,7 +343,7 @@ pub fn list_customers(
     search: Option<String>,
     include_inactive: Option<bool>,
 ) -> Result<Vec<Customer>, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "masterdata.manage")?;
 
     let conn = db::open_conn()?;
 
@@ -398,7 +398,7 @@ pub fn create_customer(
     contact_phone: Option<String>,
     notes: Option<String>,
 ) -> Result<i64, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "masterdata.manage")?;
 
     let code = customer_code.trim().to_string();
     let name = customer_name.trim().to_string();
@@ -450,7 +450,7 @@ pub fn update_customer(
     contact_phone: Option<String>,
     notes: Option<String>,
 ) -> Result<(), String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "masterdata.manage")?;
 
     let name = customer_name.trim().to_string();
     if name.is_empty() {
@@ -487,7 +487,7 @@ pub fn set_customer_active(
     id: i64,
     is_active: bool,
 ) -> Result<(), String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
+    permissions::require_permission(current_user_id, "masterdata.manage")?;
 
     let conn = db::open_conn()?;
 
