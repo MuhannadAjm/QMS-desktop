@@ -108,6 +108,11 @@ function TabButton({
   );
 }
 
+/** "1 risk" / "2 risks", with the verb agreeing. */
+function plural(n: number, singular: string, verbSingular: string, verbPlural: string) {
+  return `${n} ${singular}${n === 1 ? '' : 's'} ${n === 1 ? verbSingular : verbPlural}`;
+}
+
 // ── Risk Sources ──────────────────────────────────────────────────────────────
 
 function RiskSourcesTab({ userId, canManage }: { userId: number; canManage: boolean }) {
@@ -164,7 +169,7 @@ function RiskSourcesTab({ userId, canManage }: { userId: number; canManage: bool
         // Say what did NOT change, because that is the surprising part.
         setNotice(
           retained > 0
-            ? `Renamed to “${trimmed}”. ${retained} existing risk${retained === 1 ? '' : 's'} keep the wording recorded at the time — history is not rewritten.`
+            ? `Renamed to “${trimmed}”. ${plural(retained, 'existing risk', 'keeps', 'keep')} the wording recorded at the time — history is not rewritten.`
             : `Renamed to “${trimmed}”.`,
         );
       }
@@ -251,14 +256,21 @@ function RiskSourcesTab({ userId, canManage }: { userId: number; canManage: bool
                             <IconBtn
                               title={s.is_active ? 'Deactivate' : 'Activate'}
                               disabled={busy}
-                              onClick={() => void run(async () => {
-                                await setRiskSourceActive(userId, s.id, !s.is_active);
-                                setNotice(
-                                  s.is_active
-                                    ? `“${s.name}” deactivated. It is no longer offered on new risks; the ${s.usage_count} risk${s.usage_count === 1 ? '' : 's'} already using it are unchanged.`
-                                    : `“${s.name}” reactivated.`,
-                                );
-                              })}
+                              onClick={() => {
+                                // Derive the message from the value being sent, not
+                                // from a second read of the row — otherwise the two
+                                // can disagree and the banner reports the opposite
+                                // of what happened.
+                                const nextActive = !s.is_active;
+                                void run(async () => {
+                                  await setRiskSourceActive(userId, s.id, nextActive);
+                                  setNotice(
+                                    nextActive
+                                      ? `“${s.name}” reactivated. It is selectable on new risks again.`
+                                      : `“${s.name}” deactivated. It is no longer offered on new risks; the ${plural(s.usage_count, 'risk', 'already using it is', 'already using it are')} unchanged.`,
+                                  );
+                                });
+                              }}
                             >
                               <Power size={13} />
                             </IconBtn>
@@ -303,7 +315,7 @@ function RiskSourcesTab({ userId, canManage }: { userId: number; canManage: bool
         </Field>
         {editing && editing.usage_count > 0 && (
           <p className="text-[12px] text-[#B45309] bg-[#FFFBEB] border border-[#FDE68A] rounded-lg px-3 py-2">
-            {editing.usage_count} existing risk{editing.usage_count === 1 ? '' : 's'} reference this
+            {plural(editing.usage_count, 'existing risk', 'references', 'reference')} this
             source. They will keep the wording they were recorded with — renaming here changes
             the master value and future selections only.
           </p>
@@ -389,7 +401,7 @@ function CustomersTab({ userId, canManage }: { userId: number; canManage: boolea
           editing.customer_name !== form.customer_name.trim();
         setNotice(
           changed && retained > 0
-            ? `Customer updated. ${retained} existing complaint${retained === 1 ? '' : 's'} keep the customer details recorded at the time — history is not rewritten.`
+            ? `Customer updated. ${plural(retained, 'existing complaint', 'keeps', 'keep')} the customer details recorded at the time — history is not rewritten.`
             : 'Customer updated.',
         );
       }
@@ -404,14 +416,16 @@ function CustomersTab({ userId, canManage }: { userId: number; canManage: boolea
   }
 
   async function toggle(c: Customer) {
+    // One value drives both the call and the message.
+    const nextActive = !c.is_active;
     setBusy(true);
     setError(null);
     try {
-      await setCustomerActive(userId, c.id, !c.is_active);
+      await setCustomerActive(userId, c.id, nextActive);
       setNotice(
-        c.is_active
-          ? `“${c.customer_name}” deactivated. It is no longer offered on new complaints; the ${c.complaint_count} existing complaint${c.complaint_count === 1 ? '' : 's'} still show it.`
-          : `“${c.customer_name}” reactivated.`,
+        nextActive
+          ? `“${c.customer_name}” reactivated. It is selectable on new complaints again.`
+          : `“${c.customer_name}” deactivated. It is no longer offered on new complaints; the ${plural(c.complaint_count, 'existing complaint', 'still shows it', 'still show it')}.`,
       );
       await load();
     } catch (e) {
@@ -546,9 +560,9 @@ function CustomersTab({ userId, canManage }: { userId: number; canManage: boolea
 
         {editing && editing.complaint_count > 0 && (
           <p className="text-[12px] text-[#B45309] bg-[#FFFBEB] border border-[#FDE68A] rounded-lg px-3 py-2">
-            {editing.complaint_count} existing complaint{editing.complaint_count === 1 ? '' : 's'}
-            {' '}reference this customer. They keep the name and code recorded at the time, so
-            editing here does not change what those complaints say.
+            {plural(editing.complaint_count, 'existing complaint', 'references', 'reference')} this
+            customer. They keep the name and code recorded at the time, so editing here does not
+            change what those complaints say.
           </p>
         )}
 

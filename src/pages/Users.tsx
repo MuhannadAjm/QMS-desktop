@@ -6,7 +6,6 @@ import {
   UserCheck,
   UserX,
   KeyRound,
-  X,
   Loader2,
   Eye,
   EyeOff,
@@ -15,6 +14,7 @@ import {
 import PageHeader from '../components/ui/PageHeader';
 import Card from '../components/ui/Card';
 import StatusBadge from '../components/ui/StatusBadge';
+import Modal from '../components/ui/Modal';
 import UserPermissionsModal from '../components/users/UserPermissionsModal';
 import { useAuthStore } from '../stores/authStore';
 import { usePermissionStore } from '../stores/permissionStore';
@@ -307,6 +307,8 @@ export default function Users() {
 
       {modalMode && (
         <Modal
+          open
+          widthClass="max-w-md"
           title={
             modalMode === 'create' ? 'New User' :
             modalMode === 'edit' ? `Edit — ${selectedUser?.name}` :
@@ -492,23 +494,6 @@ function ActionBtn({ title, onClick, children }: { title: string; onClick: () =>
     >
       {children}
     </button>
-  );
-}
-
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative bg-white rounded-lg border border-[#E2E8F0] shadow-xl w-full max-w-md mx-4 p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-[15px] font-semibold text-[#1A202C]">{title}</h2>
-          <button onClick={onClose} className="text-[#94A3B8] hover:text-[#64748B]">
-            <X size={16} />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
   );
 }
 
