@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ShieldAlert,
   Shield,
+  Database as DatabaseIcon,
   MessageCircle,
   ClipboardCheck,
   AlertOctagon,
@@ -66,6 +67,7 @@ const navGroups: NavGroup[] = [
     items: [
       { label: 'Users',   path: '/users',   icon: Users,     perm: 'users.view' },
       { label: 'Roles & Permissions', path: '/roles', icon: Shield, perm: 'roles.view' },
+      { label: 'Master Data', path: '/master-data', icon: DatabaseIcon, perm: 'masterdata.view' },
       { label: 'Reports', path: '/reports', icon: BarChart3, perm: 'reports.view' },
       { label: 'Backup',  path: '/backup',  icon: Database,  perm: 'backup.view' },
     ],

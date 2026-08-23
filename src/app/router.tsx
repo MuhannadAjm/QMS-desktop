@@ -18,6 +18,7 @@ import Reports from '../pages/Reports';
 import Backup from '../pages/Backup';
 import License from '../pages/License';
 import RolesPermissions from '../pages/RolesPermissions';
+import MasterData from '../pages/MasterData';
 
 /**
  * Where to send a user who has not asked for a particular page, in the order we
@@ -34,6 +35,7 @@ const LANDING_ORDER: { path: string; perm: string }[] = [
   { path: '/documents', perm: 'documents.view' },
   { path: '/users', perm: 'users.view' },
   { path: '/roles', perm: 'roles.view' },
+  { path: '/master-data', perm: 'masterdata.view' },
   { path: '/reports', perm: 'reports.view' },
   { path: '/backup', perm: 'backup.view' },
   { path: '/settings', perm: 'settings.view' },
@@ -173,6 +175,7 @@ export default function AppRouter() {
         <Route path="/documents" element={<Documents />} />
         <Route path="/users" element={<Users />} />
         <Route path="/roles" element={<RolesPermissions />} />
+        <Route path="/master-data" element={<MasterData />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/backup" element={<Backup />} />

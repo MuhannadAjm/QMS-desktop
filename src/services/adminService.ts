@@ -100,17 +100,25 @@ export async function createCustomer(
   });
 }
 
-/** customer_code is intentionally not updatable — it identifies historical complaints. */
+/**
+ * Edit a customer, code included.
+ *
+ * Editing the master record does NOT rewrite the customer name/code text stored
+ * on historical complaints — those stay as raised. Resolves to the number of
+ * complaints that kept their original snapshot, so the caller can say what was
+ * deliberately left alone.
+ */
 export async function updateCustomer(
   currentUserId: number,
   id: number,
+  customerCode: string,
   customerName: string,
   contactEmail?: string,
   contactPhone?: string,
   notes?: string,
-): Promise<void> {
-  return invoke<void>('update_customer', {
-    currentUserId, id, customerName, contactEmail, contactPhone, notes,
+): Promise<number> {
+  return invoke<number>('update_customer', {
+    currentUserId, id, customerCode, customerName, contactEmail, contactPhone, notes,
   });
 }
 

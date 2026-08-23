@@ -75,7 +75,20 @@ fn log_admin_activity(
 /// Any authenticated user may read these — they are selectable values, not settings.
 #[tauri::command]
 pub fn list_risk_sources(current_user_id: i64) -> Result<Vec<RiskSource>, String> {
-    permissions::require_permission(current_user_id, "masterdata.view")?;
+    // Same reasoning as list_customer_options: choosing a source while raising a
+    // risk is part of doing the work, not part of administering the lookup table.
+    // A custom role granted risks.create must not also need master-data rights
+    // just to populate one dropdown.
+    permissions::require_any_permission(
+        current_user_id,
+        &[
+            "masterdata.view",
+            "masterdata.manage",
+            "risks.view",
+            "risks.create",
+            "risks.edit",
+        ],
+    )?;
     query_risk_sources(true)
 }
 
@@ -309,9 +322,28 @@ pub fn reorder_risk_sources(current_user_id: i64, ordered_ids: Vec<i64>) -> Resu
 // ── Customers ─────────────────────────────────────────────────────────────────
 
 /// Active customers for the Complaint customer selector.
+///
+/// Authorized by EITHER master-data rights or a complaint business capability.
+/// Requiring master-data permission here would mean a user could not raise a
+/// complaint without also being able to administer the customer master, which is
+/// the wrong trade: choosing an existing customer is a read of three
+/// non-sensitive fields, not an administrative act.
+///
+/// The projection is deliberately minimal — id, code and name only. Contact
+/// details and notes stay behind `list_customers`, which does require
+/// `masterdata.manage`.
 #[tauri::command]
 pub fn list_customer_options(current_user_id: i64) -> Result<Vec<CustomerOption>, String> {
-    permissions::require_permission(current_user_id, "masterdata.view")?;
+    permissions::require_any_permission(
+        current_user_id,
+        &[
+            "masterdata.view",
+            "masterdata.manage",
+            "complaints.view",
+            "complaints.create",
+            "complaints.edit",
+        ],
+    )?;
 
     let conn = db::open_conn()?;
     let mut stmt = conn
@@ -438,45 +470,104 @@ pub fn create_customer(
 
 /// Update customer details.
 ///
-/// customer_code is intentionally immutable: it is the business identifier printed
-/// on historical complaints. Changing it would retroactively alter what those
-/// records appear to reference.
+/// Edit a customer, including its business code.
+///
+/// The code IS editable — a mistyped customer code has to be fixable — but
+/// editing it is a change to the MASTER record only. Historical complaints keep
+/// the `customer_name` / `customer_id` text they were raised with, exactly as a
+/// risk source rename leaves `risks.source` alone. That is what stops a rename
+/// from retroactively falsifying a controlled record.
+///
+/// Returns the number of complaints that keep their original snapshot, so the
+/// caller can tell the administrator what was deliberately left untouched.
 #[tauri::command]
 pub fn update_customer(
     current_user_id: i64,
     id: i64,
+    customer_code: String,
     customer_name: String,
     contact_email: Option<String>,
     contact_phone: Option<String>,
     notes: Option<String>,
-) -> Result<(), String> {
+) -> Result<i64, String> {
     permissions::require_permission(current_user_id, "masterdata.manage")?;
 
     let name = customer_name.trim().to_string();
     if name.is_empty() {
         return Err("Customer name is required".to_string());
     }
-
-    let conn = db::open_conn()?;
-
-    let exists: i64 = conn
-        .query_row("SELECT COUNT(*) FROM customers WHERE id = ?1", params![id], |r| r.get(0))
-        .map_err(|e| format!("Failed to load customer: {}", e))?;
-    if exists == 0 {
-        return Err("Customer not found".to_string());
+    let code = customer_code.trim().to_string();
+    if code.is_empty() {
+        return Err("Customer code is required".to_string());
     }
 
-    conn.execute(
+    let mut conn = db::open_conn()?;
+
+    let (old_code, old_name): (String, String) = conn
+        .query_row(
+            "SELECT customer_code, customer_name FROM customers WHERE id = ?1",
+            params![id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|_| "Customer not found".to_string())?;
+
+    // Case-insensitive, so "acme-01" cannot shadow "ACME-01" in a selector.
+    let clash: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM customers WHERE lower(customer_code) = lower(?1) AND id != ?2",
+            params![&code, id],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("Failed to check for duplicate customer code: {}", e))?;
+    if clash > 0 {
+        return Err(format!(
+            "Customer code '{}' is already used by another customer. Codes must be unique.",
+            code
+        ));
+    }
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to start transaction: {}", e))?;
+
+    // Count, do NOT modify. These complaints keep their original wording.
+    let retained: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM complaints WHERE customer_ref_id = ?1",
+            params![id],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+
+    tx.execute(
         "UPDATE customers
-            SET customer_name = ?1, contact_email = ?2, contact_phone = ?3,
-                notes = ?4, updated_at = datetime('now')
-          WHERE id = ?5",
-        params![&name, &contact_email, &contact_phone, &notes, id],
+            SET customer_code = ?1, customer_name = ?2, contact_email = ?3,
+                contact_phone = ?4, notes = ?5, updated_at = datetime('now')
+          WHERE id = ?6",
+        params![&code, &name, &contact_email, &contact_phone, &notes, id],
     )
     .map_err(|e| format!("Failed to update customer: {}", e))?;
 
-    log_admin_activity(&conn, id, "UPDATE", &format!("Customer '{}' updated", name), current_user_id);
-    Ok(())
+    let renamed = old_name != name || old_code != code;
+    let description = if renamed {
+        format!(
+            "Customer changed from '{}' ({}) to '{}' ({}). {} historical complaint(s) retain the original details as recorded.",
+            old_name, old_code, name, code, retained
+        )
+    } else {
+        format!("Customer '{}' ({}) updated", name, code)
+    };
+
+    tx.execute(
+        "INSERT INTO activity_log (module, record_id, action, description, performed_by, performed_at)
+         VALUES ('master_data', ?1, 'UPDATE', ?2, ?3, datetime('now'))",
+        params![id, description, current_user_id],
+    )
+    .map_err(|e| format!("Failed to write activity log: {}", e))?;
+
+    tx.commit().map_err(|e| format!("Failed to commit customer update: {}", e))?;
+
+    Ok(retained)
 }
 
 /// Activate/deactivate a customer. Deactivated customers vanish from the complaint

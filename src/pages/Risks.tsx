@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { listRecordOwnerCandidates } from '../services/adminService';
+import { listRecordOwnerCandidates, listRiskSources, type RiskSource } from '../services/adminService';
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog';
 import { useAuthStore } from '../stores/authStore';
 import { usePermissionStore } from '../stores/permissionStore';
@@ -11,7 +11,7 @@ import ModuleToolbar from '../components/ui/ModuleToolbar';
 import FilterBar from '../components/ui/FilterBar';
 import type { RiskListItem, RiskAttachment, RiskActivityEntry } from '../types/risk';
 import {
-  RISK_CATEGORIES, RISK_SOURCES, riskLevelBadgeClass, riskScoreCellClass, computeRiskLevel,
+  RISK_CATEGORIES, riskLevelBadgeClass, riskScoreCellClass, computeRiskLevel,
 } from '../types/risk';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -100,6 +100,18 @@ function RiskModal({ risk, userId, onClose, onSaved }: RiskModalProps) {
       .catch(e => { if (!cancelled) setCandidateError(String(e)); });
     return () => { cancelled = true; };
   }, [userId]);
+
+  // Sources come from Master Data, not a constant in the bundle, so an
+  // administrator can add one without a new release.
+  const [sources, setSources] = useState<RiskSource[]>([]);
+  const [sourcesError, setSourcesError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listRiskSources(userId)
+      .then(rs => { if (!cancelled) { setSources(rs); setSourcesError(null); } })
+      .catch(e => { if (!cancelled) setSourcesError(String(e)); });
+    return () => { cancelled = true; };
+  }, [userId]);
   const isEdit = !!risk;
   const [title, setTitle] = useState(risk?.title ?? '');
   const [description, setDescription] = useState(risk?.description ?? '');
@@ -158,7 +170,11 @@ function RiskModal({ risk, userId, onClose, onSaved }: RiskModalProps) {
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
-          {(error || candidateError) && <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{error || candidateError}</div>}
+          {(error || candidateError || sourcesError) && (
+            <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">
+              {error || candidateError || sourcesError}
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Hazard Description <span className="text-red-500">*</span></label>
@@ -190,7 +206,13 @@ function RiskModal({ risk, userId, onClose, onSaved }: RiskModalProps) {
               <select value={source} onChange={e => setSource(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2E5080]">
                 <option value="">— Select —</option>
-                {RISK_SOURCES.map(s => <option key={s}>{s}</option>)}
+                {sources.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                {/* Whatever this risk was recorded with stays selectable even if it
+                    has since been deactivated or renamed, so editing an unrelated
+                    field cannot quietly rewrite its source. */}
+                {source && !sources.some(s => s.name === source) && (
+                  <option value={source}>{source} (no longer offered)</option>
+                )}
               </select>
             </div>
             <div>

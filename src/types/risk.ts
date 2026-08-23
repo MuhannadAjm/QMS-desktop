@@ -59,11 +59,6 @@ export const RISK_CATEGORIES = [
 
 export const RISK_LEVELS = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
 
-export const RISK_SOURCES = [
-  'Internal Audit', 'Customer Feedback', 'Process Review',
-  'Management Review', 'Supplier Assessment', 'Incident', 'Other',
-];
-
 export function computeRiskLevel(score: number): string {
   if (score >= 20) return 'CRITICAL';
   if (score >= 10) return 'HIGH';
