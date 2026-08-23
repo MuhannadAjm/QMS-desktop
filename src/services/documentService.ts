@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { DocumentListItem, DocumentRevision, ActivityEntry, UserMinimal } from '../types/document';
+import type { DocumentListItem, DocumentRevision, ActivityEntry } from '../types/document';
 
 export async function listDocuments(currentUserId: number): Promise<DocumentListItem[]> {
   return invoke<DocumentListItem[]>('list_documents', { currentUserId });

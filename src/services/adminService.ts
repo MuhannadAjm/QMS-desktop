@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { UserMinimal } from '../types/document';
 
 /**
  * Administration / master-data service.
