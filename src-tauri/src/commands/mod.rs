@@ -7,6 +7,7 @@ mod dashboard;
 mod documents;
 mod files;
 mod license;
+mod master_data;
 mod non_conformities;
 mod profile;
 mod reports;
@@ -22,6 +23,11 @@ pub use audits::{
     update_audit_finding,
 };
 pub use auth::{check_first_admin_exists, create_first_admin, login};
+pub use master_data::{
+    create_customer, create_risk_source, list_all_risk_sources, list_customer_options,
+    list_customers, list_risk_sources, rename_risk_source, reorder_risk_sources,
+    set_customer_active, set_risk_source_active, update_customer,
+};
 pub use capa::{
     attach_capa_file, create_capa, get_capa, get_capa_activity, list_capa_attachments,
     list_capas, open_capa_attachment, set_capa_status, update_capa,

@@ -14,6 +14,7 @@ const MIGRATION_004: &str = include_str!("sql/004_phase6_risks_complaints.sql");
 const MIGRATION_005: &str = include_str!("sql/005_phase7_audits_nc.sql");
 const MIGRATION_006: &str = include_str!("sql/006_phase8b_cross_module_links.sql");
 const MIGRATION_007: &str = include_str!("sql/007_phase11a_username.sql");
+const MIGRATION_008: &str = include_str!("sql/008_admin_master_data.sql");
 
 fn migrations() -> Vec<Migration> {
     vec![
@@ -24,6 +25,7 @@ fn migrations() -> Vec<Migration> {
         Migration { version: "005", description: "phase7_audits_nc",         sql: MIGRATION_005 },
         Migration { version: "006", description: "phase8b_cross_module",     sql: MIGRATION_006 },
         Migration { version: "007", description: "phase11a_username",        sql: MIGRATION_007 },
+        Migration { version: "008", description: "admin_master_data",        sql: MIGRATION_008 },
     ]
 }
 
@@ -68,15 +70,33 @@ fn run_pending_migrations(conn: &Connection) -> Result<(), String> {
             continue;
         }
 
-        conn.execute_batch(m.sql)
-            .map_err(|e| format!("Migration {} ({}) failed: {}", m.version, m.description, e))?;
-
-        conn.execute(
-            "INSERT INTO schema_migrations (version, description, applied_at)
-             VALUES (?1, ?2, datetime('now'))",
-            params![m.version, m.description],
-        )
-        .map_err(|e| format!("Failed to record migration {}: {}", m.version, e))?;
+        // Apply the migration AND record it inside one transaction.
+        //
+        // Previously execute_batch() ran outside any transaction, so a migration
+        // that failed halfway left the earlier statements committed while the
+        // version row was never written. The next launch would retry from the
+        // top and die on "duplicate column name", leaving the database wedged in
+        // a state the app could not repair — with no way forward except deleting
+        // data.db. SQLite supports transactional DDL, so wrapping both makes a
+        // failed migration a clean no-op that can simply be retried.
+        conn.execute_batch(&format!(
+            "BEGIN;\n{}\n\
+             INSERT INTO schema_migrations (version, description, applied_at)\n\
+             VALUES ('{}', '{}', datetime('now'));\n\
+             COMMIT;",
+            m.sql,
+            m.version.replace('\'', "''"),
+            m.description.replace('\'', "''"),
+        ))
+        .map_err(|e| {
+            // Best-effort unwind; SQLite has already rolled back on error, this
+            // just clears the transaction state if it somehow survived.
+            let _ = conn.execute_batch("ROLLBACK;");
+            format!(
+                "Migration {} ({}) failed and was rolled back: {}",
+                m.version, m.description, e
+            )
+        })?;
     }
     Ok(())
 }
