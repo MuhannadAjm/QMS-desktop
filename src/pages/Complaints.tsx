@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { listRecordOwnerCandidates } from '../services/adminService';
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog';
-import { invoke } from '@tauri-apps/api/core';
 import { useAuthStore } from '../stores/authStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { complaintService } from '../services/complaintService';
@@ -38,13 +38,25 @@ interface UserMin { id: number; name: string; role?: string; }
 
 interface ComplaintModalProps {
   complaint: ComplaintListItem | null;
-  users: UserMin[];
   userId: number;
   onClose: () => void;
   onSaved: (c: ComplaintListItem) => void;
 }
 
-function ComplaintModal({ complaint, users, userId, onClose, onSaved }: ComplaintModalProps) {
+function ComplaintModal({ complaint, userId, onClose, onSaved }: ComplaintModalProps) {
+  // Candidates need complaints create/edit/assign permission. Fetched here
+  // rather than by the page: this component only mounts when a form opens, so a
+  // read-only viewer never triggers the request and never sees a spurious
+  // authorization error.
+  const [users, setUsers] = useState<UserMin[]>([]);
+  const [candidateError, setCandidateError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listRecordOwnerCandidates(userId, 'complaints')
+      .then(cs => { if (!cancelled) { setUsers(cs); setCandidateError(null); } })
+      .catch(e => { if (!cancelled) setCandidateError(String(e)); });
+    return () => { cancelled = true; };
+  }, [userId]);
   const isEdit = !!complaint;
   const [customerName, setCustomerName] = useState(complaint?.customer_name ?? '');
   const [customerId, setCustomerId] = useState(complaint?.customer_id ?? '');
@@ -100,7 +112,7 @@ function ComplaintModal({ complaint, users, userId, onClose, onSaved }: Complain
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
-          {error && <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{error}</div>}
+          {(error || candidateError) && <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{error || candidateError}</div>}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -334,8 +346,8 @@ function CreateCapaFromComplaintModal({ complaint, userId, onClose, onCreated }:
 
 type DrawerTab = 'details' | 'customer' | 'attachments' | 'activity' | 'links';
 
-function DetailsDrawer({ complaint, userId, canEdit, onClose, onUpdated, users }: {
-  complaint: ComplaintListItem; userId: number; canEdit: boolean; users: UserMin[];
+function DetailsDrawer({ complaint, userId, canEdit, onClose, onUpdated }: {
+  complaint: ComplaintListItem; userId: number; canEdit: boolean;
   onClose: () => void; onUpdated: (c: ComplaintListItem) => void;
 }) {
   const [tab, setTab] = useState<DrawerTab>('details');
@@ -583,7 +595,7 @@ function DetailsDrawer({ complaint, userId, canEdit, onClose, onUpdated, users }
       </div>
 
       {showEdit && (
-        <ComplaintModal complaint={complaint} users={users} userId={userId}
+        <ComplaintModal complaint={complaint} userId={userId}
           onClose={() => setShowEdit(false)}
           onSaved={c => { onUpdated(c); setShowEdit(false); }} />
       )}
@@ -623,7 +635,7 @@ export default function Complaints() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<ComplaintListItem | null>(null);
-  const [users, setUsers] = useState<UserMin[]>([]);
+
   const [showNew, setShowNew] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
@@ -648,7 +660,6 @@ export default function Complaints() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    invoke<UserMin[]>('list_users_minimal', { currentUserId: userId }).then(setUsers).catch(() => {});
   }, [userId]);
 
   const totalCount = complaints.length;
@@ -804,7 +815,7 @@ export default function Complaints() {
       </div>
 
       {showNew && (
-        <ComplaintModal complaint={null} users={users} userId={userId}
+        <ComplaintModal complaint={null} userId={userId}
           onClose={() => setShowNew(false)}
           onSaved={c => { setComplaints(prev => [c, ...prev]); setShowNew(false); setSelected(c); }} />
       )}
@@ -814,7 +825,7 @@ export default function Complaints() {
         <>
           <div className="fixed inset-0 z-30" onClick={() => setSelected(null)} />
           <DetailsDrawer
-            complaint={selected} userId={userId} canEdit={canEdit} users={users}
+            complaint={selected} userId={userId} canEdit={canEdit}
             onClose={() => setSelected(null)}
             onUpdated={onComplaintUpdated}
           />

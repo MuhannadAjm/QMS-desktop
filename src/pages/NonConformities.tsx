@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { listRecordOwnerCandidates } from '../services/adminService';
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog';
-import { invoke } from '@tauri-apps/api/core';
 import { AlertOctagon } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -66,13 +66,25 @@ function sourceLabel(v: string | null | undefined): string {
 
 interface NcModalProps {
   nc: NcListItem | null;
-  users: UserMin[];
   userId: number;
   onClose: () => void;
   onSaved: (n: NcListItem) => void;
 }
 
-function NcModal({ nc, users, userId, onClose, onSaved }: NcModalProps) {
+function NcModal({ nc, userId, onClose, onSaved }: NcModalProps) {
+  // Candidates need nc create/edit/assign permission. Fetched here
+  // rather than by the page: this component only mounts when a form opens, so a
+  // read-only viewer never triggers the request and never sees a spurious
+  // authorization error.
+  const [users, setUsers] = useState<UserMin[]>([]);
+  const [candidateError, setCandidateError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listRecordOwnerCandidates(userId, 'nc')
+      .then(cs => { if (!cancelled) { setUsers(cs); setCandidateError(null); } })
+      .catch(e => { if (!cancelled) setCandidateError(String(e)); });
+    return () => { cancelled = true; };
+  }, [userId]);
   const isEdit = !!nc;
   const [title, setTitle] = useState(nc?.title ?? '');
   const [severity, setSeverity] = useState(nc?.severity ?? 'LOW');
@@ -122,7 +134,7 @@ function NcModal({ nc, users, userId, onClose, onSaved }: NcModalProps) {
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
-          {error && <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{error}</div>}
+          {(error || candidateError) && <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{error || candidateError}</div>}
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Title / Description <span className="text-red-500">*</span></label>
@@ -309,9 +321,8 @@ function ImportNoticeModal({ onClose }: { onClose: () => void }) {
 
 type DrawerTab = 'details' | 'source' | 'capa' | 'attachments' | 'activity';
 
-function DetailsDrawer({ nc, userId, canEdit, onClose, onUpdated, users }: {
+function DetailsDrawer({ nc, userId, canEdit, onClose, onUpdated }: {
   nc: NcListItem; userId: number; canEdit: boolean;
-  users: UserMin[];
   onClose: () => void; onUpdated: (n: NcListItem) => void;
 }) {
   const [tab, setTab] = useState<DrawerTab>('details');
@@ -547,7 +558,7 @@ function DetailsDrawer({ nc, userId, canEdit, onClose, onUpdated, users }: {
 
       {/* Sub-modals */}
       {showEdit && (
-        <NcModal nc={nc} users={users} userId={userId}
+        <NcModal nc={nc} userId={userId}
           onClose={() => setShowEdit(false)}
           onSaved={n => { onUpdated(n); setShowEdit(false); }} />
       )}
@@ -580,7 +591,7 @@ export default function NonConformities() {
   const canEdit = ['Admin', 'QualityManager'].includes(role);
 
   const [ncs, setNcs] = useState<NcListItem[]>([]);
-  const [users, setUsers] = useState<UserMin[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -600,7 +611,6 @@ export default function NonConformities() {
 
   useEffect(() => {
     loadNcs();
-    invoke<UserMin[]>('list_users_minimal', { currentUserId: userId }).then(setUsers).catch(() => {});
   }, [loadNcs, userId]);
 
   // KPI
@@ -737,7 +747,7 @@ export default function NonConformities() {
 
       {/* Modals */}
       {showCreate && (
-        <NcModal nc={null} users={users} userId={userId}
+        <NcModal nc={null} userId={userId}
           onClose={() => setShowCreate(false)}
           onSaved={n => { setNcs(prev => [n, ...prev]); setShowCreate(false); }} />
       )}
@@ -749,7 +759,6 @@ export default function NonConformities() {
           nc={selected}
           userId={userId}
           canEdit={canEdit}
-          users={users}
           onClose={() => setSelected(null)}
           onUpdated={handleUpdated}
         />

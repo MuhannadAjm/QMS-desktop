@@ -3,13 +3,6 @@ use serde::Serialize;
 use crate::{db, password, permissions};
 
 #[derive(Serialize)]
-pub struct UserMinimal {
-    pub id: i64,
-    pub name: String,
-    pub role: String,
-}
-
-#[derive(Serialize)]
 pub struct UserListItem {
     pub id: i64,
     pub username: String,
@@ -301,34 +294,6 @@ pub fn set_user_status(current_user_id: i64, id: i64, is_active: bool) -> Result
     Ok(())
 }
 
-/// List active users (id, name, role only). For owner dropdowns. Requires Admin or QualityManager.
-#[tauri::command]
-pub fn list_users_minimal(current_user_id: i64) -> Result<Vec<UserMinimal>, String> {
-    permissions::require_admin_or_quality_manager(current_user_id)?;
-
-    let conn = db::open_conn()?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, full_name, role FROM users
-             WHERE is_active = 1 ORDER BY full_name ASC",
-        )
-        .map_err(|e| format!("Failed to prepare query: {}", e))?;
-
-    let users = stmt
-        .query_map([], |row| {
-            Ok(UserMinimal {
-                id:   row.get(0)?,
-                name: row.get(1)?,
-                role: row.get(2)?,
-            })
-        })
-        .map_err(|e| format!("Failed to query users: {}", e))?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    Ok(users)
-}
-
 /// Reset a user's password. Requires Admin role.
 #[tauri::command]
 pub fn reset_user_password(current_user_id: i64, id: i64, new_password: String) -> Result<(), String> {
@@ -406,58 +371,6 @@ pub fn set_user_eligibility(
     Ok(())
 }
 
-/// Active users eligible for a given assignment capability.
-///
-/// Guarded with require_authenticated rather than require_admin_or_quality_manager.
-/// list_users_minimal - which previously fed every assignment selector - requires
-/// Admin/QualityManager, so for an Auditor or Employee it returned an error that
-/// every caller swallowed, leaving the dropdown silently empty. Choosing who a
-/// record is assigned to is not privileged information; managing users is, and
-/// that stays restricted.
-///
-/// `capability` is "capa_responsible" or "lead_auditor".
-#[tauri::command]
-pub fn list_assignable_users(
-    current_user_id: i64,
-    capability: String,
-) -> Result<Vec<UserMinimal>, String> {
-    permissions::require_authenticated(current_user_id)?;
-
-    // Whitelist the column name - it is interpolated into SQL, so it must never
-    // come straight from the caller.
-    let column = match capability.as_str() {
-        "capa_responsible" => "can_be_capa_responsible",
-        "lead_auditor"     => "can_be_lead_auditor",
-        other => return Err(format!("Unknown assignment capability: {}", other)),
-    };
-
-    let conn = db::open_conn()?;
-
-    let sql = format!(
-        "SELECT id, full_name, role FROM users
-          WHERE is_active = 1 AND {} = 1
-          ORDER BY full_name ASC",
-        column
-    );
-
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|e| format!("Failed to prepare query: {}", e))?;
-
-    let users = stmt
-        .query_map([], |row| {
-            Ok(UserMinimal {
-                id:   row.get(0)?,
-                name: row.get(1)?,
-                role: row.get(2)?,
-            })
-        })
-        .map_err(|e| format!("Failed to query assignable users: {}", e))?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    Ok(users)
-}
 
 #[cfg(test)]
 mod eligibility_tests {
@@ -692,5 +605,116 @@ mod candidate_tests {
 
         assert_eq!(names("can_be_capa_responsible"), vec!["Active Eligible"]);
         assert_eq!(names("can_be_lead_auditor"), vec!["Active Ineligible"]);
+    }
+}
+
+/// Active users who may be set as the owner / responsible person / handler of a
+/// record in the given module.
+///
+/// SEMANTICS, derived from the actual forms rather than assumed:
+///   risks      "Responsible Person"  -> risks.owner_id
+///   complaints "Issued By (User)"    -> complaints.assigned_to
+///   nc         "Responsible Person"  -> non_conformities.assigned_to
+///   documents  "Owner"               -> documents.owner_id
+///
+/// None of these is a curated role in the product: any active user can be made
+/// responsible for a risk or own a document. There is deliberately NO eligibility
+/// flag for them — unlike CAPA responsible person and lead auditor, which the
+/// product does curate. Inventing flags here would add administration burden for
+/// a distinction the product does not make.
+///
+/// One parameterized command rather than four near-identical ones: the modules
+/// differ only in which permission authorizes the call, and the module string is
+/// whitelisted before it can influence anything.
+///
+/// PRIVACY: id and full_name only, exactly like the CAPA/auditor candidate APIs.
+#[tauri::command]
+pub fn list_record_owner_candidates(
+    current_user_id: i64,
+    module: String,
+) -> Result<Vec<AssignmentCandidate>, String> {
+    // Authorized by the caller's ability to act on that module — never by user
+    // administration rights. A read-only viewer is correctly refused, so callers
+    // must request this only when opening a form that needs it.
+    let required: &[&str] = match module.as_str() {
+        "risks"      => &["risks.create", "risks.edit", "risks.assign"],
+        "complaints" => &["complaints.create", "complaints.edit", "complaints.assign"],
+        "nc"         => &["nc.create", "nc.edit", "nc.assign"],
+        "documents"  => &["documents.create", "documents.edit"],
+        other => return Err(format!("Unknown assignment module: {}", other)),
+    };
+    permissions::require_any_permission(current_user_id, required)?;
+
+    let conn = db::open_conn()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, full_name FROM users
+              WHERE is_active = 1
+              ORDER BY full_name ASC",
+        )
+        .map_err(|e| format!("Failed to prepare owner candidate query: {}", e))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(AssignmentCandidate {
+                id:   row.get(0)?,
+                name: row.get(1)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query owner candidates: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+#[cfg(test)]
+mod owner_candidate_tests {
+    /// The module string selects a permission set and must never fall through to
+    /// a default. An unknown value has to be rejected, not silently allowed.
+    #[test]
+    fn module_whitelist_rejects_anything_unexpected() {
+        let map = |m: &str| -> Option<&[&str]> {
+            match m {
+                "risks" => Some(&["risks.create", "risks.edit", "risks.assign"]),
+                "complaints" => Some(&["complaints.create", "complaints.edit", "complaints.assign"]),
+                "nc" => Some(&["nc.create", "nc.edit", "nc.assign"]),
+                "documents" => Some(&["documents.create", "documents.edit"]),
+                _ => None,
+            }
+        };
+        assert!(map("risks").is_some());
+        assert!(map("documents").is_some());
+        assert_eq!(map("users"), None, "must not expose the user directory by module name");
+        assert_eq!(map(""), None);
+        assert_eq!(map("risks; DROP TABLE users--"), None);
+    }
+
+    /// Owner candidates are every ACTIVE user — no eligibility filter, because the
+    /// product does not curate these roles. Inactive accounts are still excluded.
+    #[test]
+    fn owner_candidates_are_all_active_users_regardless_of_eligibility() {
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, full_name TEXT, is_active INTEGER,
+                can_be_capa_responsible INTEGER, can_be_lead_auditor INTEGER);
+             INSERT INTO users VALUES
+                (1,'Ann Active',1,0,0),
+                (2,'Ben Eligible',1,1,1),
+                (3,'Cid Inactive',0,1,1);",
+        )
+        .unwrap();
+
+        let mut s = c
+            .prepare("SELECT full_name FROM users WHERE is_active = 1 ORDER BY full_name")
+            .unwrap();
+        let got: Vec<String> = s
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(got, vec!["Ann Active", "Ben Eligible"]);
+        assert!(!got.contains(&"Cid Inactive".to_string()), "inactive users must never be offered");
     }
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { listRecordOwnerCandidates } from '../services/adminService';
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog';
-import { invoke } from '@tauri-apps/api/core';
 import { useAuthStore } from '../stores/authStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { riskService } from '../services/riskService';
@@ -80,13 +80,25 @@ function RiskMatrix({ severity, likelihood }: { severity: number; likelihood: nu
 
 interface RiskModalProps {
   risk: RiskListItem | null;
-  users: UserMin[];
   userId: number;
   onClose: () => void;
   onSaved: (r: RiskListItem) => void;
 }
 
-function RiskModal({ risk, users, userId, onClose, onSaved }: RiskModalProps) {
+function RiskModal({ risk, userId, onClose, onSaved }: RiskModalProps) {
+  // Candidates need risks create/edit/assign permission. Fetched here
+  // rather than by the page: this component only mounts when a form opens, so a
+  // read-only viewer never triggers the request and never sees a spurious
+  // authorization error.
+  const [users, setUsers] = useState<UserMin[]>([]);
+  const [candidateError, setCandidateError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listRecordOwnerCandidates(userId, 'risks')
+      .then(cs => { if (!cancelled) { setUsers(cs); setCandidateError(null); } })
+      .catch(e => { if (!cancelled) setCandidateError(String(e)); });
+    return () => { cancelled = true; };
+  }, [userId]);
   const isEdit = !!risk;
   const [title, setTitle] = useState(risk?.title ?? '');
   const [description, setDescription] = useState(risk?.description ?? '');
@@ -145,7 +157,7 @@ function RiskModal({ risk, users, userId, onClose, onSaved }: RiskModalProps) {
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
-          {error && <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{error}</div>}
+          {(error || candidateError) && <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{error || candidateError}</div>}
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Hazard Description <span className="text-red-500">*</span></label>
@@ -415,8 +427,8 @@ function CreateCapaFromRiskModal({ risk, userId, onClose, onCreated }: {
 
 type DrawerTab = 'details' | 'controls' | 'matrix' | 'attachments' | 'activity' | 'links';
 
-function DetailsDrawer({ risk, userId, canEdit, onClose, onUpdated, users }: {
-  risk: RiskListItem; userId: number; canEdit: boolean; users: UserMin[];
+function DetailsDrawer({ risk, userId, canEdit, onClose, onUpdated }: {
+  risk: RiskListItem; userId: number; canEdit: boolean;
   onClose: () => void; onUpdated: (r: RiskListItem) => void;
 }) {
   const [tab, setTab] = useState<DrawerTab>('details');
@@ -668,7 +680,7 @@ function DetailsDrawer({ risk, userId, canEdit, onClose, onUpdated, users }: {
       </div>
 
       {showEdit && (
-        <RiskModal risk={risk} users={users} userId={userId} onClose={() => setShowEdit(false)}
+        <RiskModal risk={risk} userId={userId} onClose={() => setShowEdit(false)}
           onSaved={r => { onUpdated(r); setShowEdit(false); }} />
       )}
       {showClose && (
@@ -703,7 +715,7 @@ export default function Risks() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<RiskListItem | null>(null);
-  const [users, setUsers] = useState<UserMin[]>([]);
+
   const [showNew, setShowNew] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
@@ -728,7 +740,6 @@ export default function Risks() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    invoke<UserMin[]>('list_users_minimal', { currentUserId: userId }).then(setUsers).catch(() => {});
   }, [userId]);
 
   const totalCount = risks.length;
@@ -888,7 +899,7 @@ export default function Risks() {
       </div>
 
       {showNew && (
-        <RiskModal risk={null} users={users} userId={userId} onClose={() => setShowNew(false)}
+        <RiskModal risk={null} userId={userId} onClose={() => setShowNew(false)}
           onSaved={r => { setRisks(prev => [r, ...prev]); setShowNew(false); setSelected(r); }} />
       )}
       {showImport && <ImportNoticeModal onClose={() => setShowImport(false)} />}
@@ -897,7 +908,7 @@ export default function Risks() {
         <>
           <div className="fixed inset-0 z-30" onClick={() => setSelected(null)} />
           <DetailsDrawer
-            risk={selected} userId={userId} canEdit={canEdit} users={users}
+            risk={selected} userId={userId} canEdit={canEdit}
             onClose={() => setSelected(null)}
             onUpdated={onRiskUpdated}
           />

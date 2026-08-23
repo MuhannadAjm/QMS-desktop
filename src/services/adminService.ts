@@ -123,27 +123,7 @@ export async function setCustomerActive(
   return invoke<void>('set_customer_active', { currentUserId, id, isActive });
 }
 
-// ── Assignment eligibility ────────────────────────────────────────────────────
-
-export type AssignmentCapability = 'capa_responsible' | 'lead_auditor';
-
-/**
- * Active users eligible for an assignment capability.
- *
- * Replaces listUsersMinimal for assignment selectors. listUsersMinimal requires
- * Admin/QualityManager, so for an Auditor or Employee it rejected and every
- * caller swallowed the error, leaving the dropdown silently empty. This command
- * only requires an authenticated caller.
- *
- * Errors are deliberately NOT swallowed here — a failure to load the list should
- * surface, not present an empty dropdown as if nobody were eligible.
- */
-export async function listAssignableUsers(
-  currentUserId: number,
-  capability: AssignmentCapability,
-): Promise<UserMinimal[]> {
-  return invoke<UserMinimal[]>('list_assignable_users', { currentUserId, capability });
-}
+// ── Assignment eligibility ──────────────────────────────────
 
 export async function setUserEligibility(
   currentUserId: number,
@@ -179,4 +159,25 @@ export async function listCapaResponsibleCandidates(currentUserId: number): Prom
 /** Users eligible to be an audit lead auditor. Authorized by audit create/edit/assign. */
 export async function listLeadAuditorCandidates(currentUserId: number): Promise<AssignmentCandidate[]> {
   return invoke<AssignmentCandidate[]>("list_lead_auditor_candidates", { currentUserId });
+}
+
+export type OwnerModule = 'risks' | 'complaints' | 'nc' | 'documents';
+
+/**
+ * Active users who may own, or be responsible for, a record in the given module.
+ *
+ * These are NOT curated by an eligibility flag — unlike CAPA responsible person
+ * and lead auditor — because the product makes no such distinction for risk
+ * owners, complaint handlers, NC owners or document owners. Every active user is
+ * offered.
+ *
+ * Authorized by business permission on that module, never by user administration
+ * rights, so request it only when opening a form that needs it. A read-only
+ * viewer is correctly refused.
+ */
+export async function listRecordOwnerCandidates(
+  currentUserId: number,
+  module: OwnerModule,
+): Promise<AssignmentCandidate[]> {
+  return invoke<AssignmentCandidate[]>('list_record_owner_candidates', { currentUserId, module });
 }

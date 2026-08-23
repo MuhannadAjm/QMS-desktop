@@ -1,50 +1,13 @@
 use rusqlite::params;
 use crate::db;
 
-// Verify the calling user is Admin or QualityManager and is active.
-pub fn require_admin_or_quality_manager(current_user_id: i64) -> Result<(), String> {
-    require_role(current_user_id, &["Admin", "QualityManager"])
-}
-
-// Verify the calling user exists and is active (any role allowed — for read-only commands).
-pub fn require_authenticated(current_user_id: i64) -> Result<(), String> {
-    require_role(
-        current_user_id,
-        &["Admin", "QualityManager", "Auditor", "Employee", "Viewer"],
-    )
-}
-
-fn require_role(user_id: i64, allowed_roles: &[&str]) -> Result<(), String> {
-    let conn = db::open_conn()?;
-
-    let result = conn.query_row(
-        "SELECT role, is_active FROM users WHERE id = ?1",
-        params![user_id],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
-    );
-
-    match result {
-        Err(_) => Err("Unauthorized: caller user not found".to_string()),
-        Ok((_, 0)) => Err("Unauthorized: caller account is inactive".to_string()),
-        Ok((role, _)) => {
-            if allowed_roles.contains(&role.as_str()) {
-                Ok(())
-            } else {
-                Err(format!(
-                    "Unauthorized: {} role required",
-                    allowed_roles.join(" or ")
-                ))
-            }
-        }
-    }
-}
-
-// ─── RBAC permission engine (migration 010) ──────────────────────────────────
+// Authorization for QMS Desktop.
 //
-// The role-name guards above remain in place and keep working. They are the
-// legacy compatibility path: replacing 88 guarded commands in one sweep would be
-// a large untested change, so commands migrate to require_permission
-// incrementally while the role guards continue to hold the line.
+// There is exactly ONE authorization system: effective permissions. The legacy
+// role-name guards (require_admin / require_admin_or_quality_manager /
+// require_admin_qm_or_auditor / require_authenticated) have all been removed
+// now that every command uses require_permission. No code path anywhere
+// authorizes by comparing a role string.
 //
 // Effective permission resolution:
 //     explicit DENY override  -> false   (deny always wins)

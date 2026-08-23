@@ -77,8 +77,9 @@ pub use risks::{
 pub use settings_cmd::{get_settings, update_setting};
 pub use storage::{get_app_storage_status, initialize_app_storage};
 pub use users::{
+    list_record_owner_candidates,
     list_capa_responsible_candidates, list_lead_auditor_candidates,
-    list_assignable_users, set_user_eligibility,
-    create_user, list_users, list_users_minimal, reset_user_password, set_user_status,
+    set_user_eligibility,
+    create_user, list_users, reset_user_password, set_user_status,
     update_user,
 };

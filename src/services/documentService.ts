@@ -76,6 +76,3 @@ export async function openDocumentFile(currentUserId: number, documentId: number
   return invoke('open_document_file', { currentUserId, documentId });
 }
 
-export async function listUsersMinimal(currentUserId: number): Promise<UserMinimal[]> {
-  return invoke<UserMinimal[]>('list_users_minimal', { currentUserId });
-}

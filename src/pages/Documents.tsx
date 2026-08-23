@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { listRecordOwnerCandidates } from '../services/adminService';
+import type { AssignmentCandidate } from '../services/adminService';
 import {
   FolderOpen, FileText, CheckCircle, Clock, Archive,
   X, Edit2, ChevronRight, Paperclip, ExternalLink, Info,
@@ -25,12 +27,11 @@ import {
   listDocumentRevisions,
   getDocumentActivity,
   openDocumentFile,
-  listUsersMinimal,
 } from '../services/documentService';
 import { exportDocumentsCSV, exportDocumentsJSON } from '../services/exportService';
 import { printDocumentRegister } from '../services/printService';
 import { DOCUMENT_TYPES, DOCUMENT_STATUSES } from '../types/document';
-import type { DocumentListItem, DocumentRevision, ActivityEntry, UserMinimal } from '../types/document';
+import type { DocumentListItem, DocumentRevision, ActivityEntry } from '../types/document';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -77,7 +78,8 @@ export default function Documents() {
 
   // Data
   const [documents, setDocuments]   = useState<DocumentListItem[]>([]);
-  const [users, setUsers]           = useState<UserMinimal[]>([]);
+  // AssignmentCandidate is id+name only - narrower than UserMinimal by design.
+  const [users, setUsers]           = useState<AssignmentCandidate[]>([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
 
@@ -125,7 +127,9 @@ export default function Documents() {
     try {
       const [docs, usrs] = await Promise.all([
         listDocuments(user.id),
-        canEdit ? listUsersMinimal(user.id) : Promise.resolve<UserMinimal[]>([]),
+        // Owner candidates require documents.create/edit, so they are fetched
+        // only when the user can actually edit. A read-only viewer never asks.
+        canEdit ? listRecordOwnerCandidates(user.id, 'documents') : Promise.resolve<AssignmentCandidate[]>([]),
       ]);
       setDocuments(docs);
       setUsers(usrs);
@@ -947,7 +951,7 @@ interface ModalProps {
   mode: 'create' | 'edit';
   form: DocForm;
   setForm: (f: DocForm) => void;
-  users: UserMinimal[];
+  users: AssignmentCandidate[];
   loading: boolean;
   error: string | null;
   onClose: () => void;
