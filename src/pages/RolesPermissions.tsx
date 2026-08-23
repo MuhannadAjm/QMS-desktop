@@ -146,6 +146,19 @@ export default function RolesPermissions() {
     return false;
   }, [templateKeys, templateOriginal]);
 
+  // Closing the editor throws the edits away, and a permission template is
+  // tedious enough to re-tick that a silent discard is a real loss. Ask first,
+  // but only when there is actually something to lose.
+  function closeTemplate() {
+    if (
+      templateDirty &&
+      !window.confirm('Discard the unsaved permission changes for this role?')
+    ) {
+      return;
+    }
+    setTemplateRole(null);
+  }
+
   async function saveTemplate() {
     if (!templateRole) return;
     setSaving(true); setError(null);
@@ -330,14 +343,14 @@ export default function RolesPermissions() {
       <Modal
         open={templateRole !== null}
         title={`Permissions — ${templateRole?.name ?? ''}`}
-        onClose={() => setTemplateRole(null)}
+        onClose={closeTemplate}
         widthClass="max-w-3xl"
         footer={
           <>
             {templateDirty && (
               <span className="mr-auto text-[12px] text-[#B45309]">Unsaved changes</span>
             )}
-            <Button variant="secondary" onClick={() => setTemplateRole(null)} disabled={saving}>
+            <Button variant="secondary" onClick={closeTemplate} disabled={saving}>
               Cancel
             </Button>
             {canManage && (
