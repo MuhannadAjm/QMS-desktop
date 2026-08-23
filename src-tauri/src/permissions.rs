@@ -480,24 +480,11 @@ mod rbac_tests {
         assert!(viewer.contains(&"capa.view".to_string()));
         assert!(!viewer.contains(&"capa.create".to_string()));
         assert!(!viewer.contains(&"users.manage".to_string()));
-
-
-
         // Migration 011 parity: the user directory was require_admin, so no other
-
-
         // role may hold users.view. A widening here leaks the directory the moment
-
-
         // list_users migrates to require_permission.
-
-
         assert!(!qm.contains(&"users.view".to_string()), "QM must not see the user directory");
-
-
         assert!(!auditor.contains(&"users.view".to_string()), "Auditor must not see the user directory");
-
-
         assert!(admin.contains(&"users.view".to_string()), "Admin keeps directory access");
     }
 }
@@ -749,5 +736,190 @@ mod propagation_tests {
         let now: i64 = c.query_row("SELECT is_active FROM users WHERE id=1", [], |r| r.get(0)).unwrap();
         assert_eq!(now, 0, "the change must actually commit");
         assert_eq!(count_control_users(&c).unwrap(), 1);
+    }
+}
+
+/// Effective permissions computed against the SHIPPED migration files.
+///
+/// The parity test above re-states migrations 010 and 011 inline, which proves
+/// the intent but cannot catch drift: edit the .sql and the test still passes
+/// because it holds its own copy. These run the real runner over the real files,
+/// so the assertions below are about the artifact that actually ships.
+#[cfg(test)]
+mod shipped_schema_tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    /// A migrated database in a scratch file. The runner needs a path, not an
+    /// in-memory handle, because it sets WAL journalling.
+    struct TempDb {
+        path: std::path::PathBuf,
+    }
+
+    impl TempDb {
+        fn new(tag: &str) -> Self {
+            let mut path = std::env::temp_dir();
+            path.push(format!("qms_shipped_schema_{}_{}.db", tag, std::process::id()));
+            let _ = std::fs::remove_file(&path);
+            crate::db::initialize_database(&path).expect("shipped migrations must apply cleanly");
+            TempDb { path }
+        }
+
+        fn open(&self) -> Connection {
+            let c = Connection::open(&self.path).unwrap();
+            c.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+            c
+        }
+    }
+
+    impl Drop for TempDb {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+            let _ = std::fs::remove_file(self.path.with_extension("db-wal"));
+            let _ = std::fs::remove_file(self.path.with_extension("db-shm"));
+        }
+    }
+
+    fn count(c: &Connection, sql: &str) -> i64 {
+        c.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    /// Give each seeded role one user so effective_permissions can be exercised
+    /// per role. Returns the ids in the order the roles were requested.
+    fn seed_users(c: &Connection, role_keys: &[&str]) -> Vec<i64> {
+        let mut ids = Vec::new();
+        for (i, key) in role_keys.iter().enumerate() {
+            let role_id: i64 = c
+                .query_row(
+                    "SELECT id FROM roles WHERE role_key = ?1",
+                    params![key],
+                    |r| r.get(0),
+                )
+                .unwrap_or_else(|_| panic!("seeded role {} is missing", key));
+            c.execute(
+                "INSERT INTO users (username, full_name, email, role, role_id, department,
+                                    password_hash, is_active, created_at, updated_at)
+                 VALUES (?1, ?2, NULL, ?3, ?4, '', 'x', 1, datetime('now'), datetime('now'))",
+                params![format!("u{}", i), format!("User {}", i), key, role_id],
+            )
+            .unwrap();
+            ids.push(c.last_insert_rowid());
+        }
+        ids
+    }
+
+    #[test]
+    fn shipped_migrations_seed_the_expected_registry() {
+        let db = TempDb::new("registry");
+        let c = db.open();
+
+        assert_eq!(count(&c, "SELECT COUNT(*) FROM permissions"), 53);
+        assert_eq!(count(&c, "SELECT COUNT(*) FROM roles"), 5);
+        assert_eq!(
+            count(&c, "SELECT COUNT(*) FROM roles WHERE is_system = 1 AND is_active = 1"),
+            5,
+        );
+        // Every permission key must be unique and non-empty, or the matrix would
+        // render duplicate rows and overrides would be ambiguous.
+        assert_eq!(
+            count(&c, "SELECT COUNT(DISTINCT perm_key) FROM permissions WHERE perm_key <> ''"),
+            53,
+        );
+    }
+
+    /// The exact template sizes. These numbers are a deliberate tripwire: any
+    /// edit to 010 or 011 that widens or narrows a role fails here and has to be
+    /// justified, rather than shipping as a silent privilege change.
+    #[test]
+    fn shipped_role_templates_have_the_agreed_shape() {
+        let db = TempDb::new("shape");
+        let c = db.open();
+
+        for (role_key, expected) in [
+            ("Admin", 53),
+            ("QualityManager", 47),
+            ("Auditor", 13),
+            ("Employee", 11),
+            ("Viewer", 11),
+        ] {
+            let n: i64 = c
+                .query_row(
+                    "SELECT COUNT(*) FROM role_permissions rp
+                       JOIN roles r ON r.id = rp.role_id
+                      WHERE r.role_key = ?1",
+                    params![role_key],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(n, expected, "{} template size changed", role_key);
+        }
+    }
+
+    /// The engine and the shipped seed agreeing is the point: resolving a real
+    /// user against the real templates must reproduce the access boundaries the
+    /// pre-RBAC role guards had.
+    #[test]
+    fn effective_permissions_over_shipped_templates_preserve_access_boundaries() {
+        let db = TempDb::new("effective");
+        let c = db.open();
+        let ids = seed_users(&c, &["Admin", "QualityManager", "Auditor", "Employee", "Viewer"]);
+
+        let admin = effective_permissions(&c, ids[0]).unwrap();
+        let qm = effective_permissions(&c, ids[1]).unwrap();
+        let auditor = effective_permissions(&c, ids[2]).unwrap();
+        let employee = effective_permissions(&c, ids[3]).unwrap();
+        let viewer = effective_permissions(&c, ids[4]).unwrap();
+
+        assert_eq!(admin.len(), 53, "Admin must hold every permission");
+
+        // Administration stays with Admin alone.
+        for other in [&qm, &auditor, &employee, &viewer] {
+            assert!(!other.contains("users.manage"));
+            assert!(!other.contains("roles.manage"));
+            assert!(!other.contains("users.view"), "the user directory was admin-only");
+            assert!(!other.contains("backup.restore"));
+        }
+
+        // Quality managers keep the full record-editing rights they had.
+        assert!(qm.contains("capa.create") && qm.contains("capa.edit"));
+        assert!(qm.contains("documents.approve"));
+
+        // Auditors could read everything and manage findings, but never create.
+        assert!(auditor.contains("audits.finding_manage"));
+        assert!(auditor.contains("capa.view"));
+        assert!(!auditor.contains("capa.create"));
+
+        // Employee and Viewer are read-only.
+        for readonly in [&employee, &viewer] {
+            assert!(readonly.contains("capa.view"));
+            assert!(!readonly.contains("capa.create"));
+            assert!(!readonly.contains("capa.edit"));
+        }
+    }
+
+    /// A user holding a role is only half of it — the lockout invariant has to
+    /// hold over the shipped seed too, not just over the hand-built fixtures.
+    #[test]
+    fn the_shipped_admin_template_is_a_valid_control_path() {
+        let db = TempDb::new("control");
+        let c = db.open();
+        let ids = seed_users(&c, &["Admin", "Viewer"]);
+
+        assert_eq!(count_control_users(&c).unwrap(), 1);
+        assert!(assert_control_path_retained(&c).is_ok());
+
+        // Removing the only Admin must be refused; a Viewer is not a substitute.
+        c.execute("UPDATE users SET is_active = 0 WHERE id = ?1", params![ids[0]])
+            .unwrap();
+        assert!(
+            assert_control_path_retained(&c).is_err(),
+            "deactivating the last control user must be refused",
+        );
+
+        // And the Viewer still is not one after the fact.
+        c.execute("UPDATE users SET is_active = 1 WHERE id = ?1", params![ids[0]])
+            .unwrap();
+        let viewer_perms = effective_permissions(&c, ids[1]).unwrap();
+        assert!(!viewer_perms.contains("users.manage"));
     }
 }

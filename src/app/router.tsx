@@ -19,10 +19,31 @@ import Backup from '../pages/Backup';
 import License from '../pages/License';
 import RolesPermissions from '../pages/RolesPermissions';
 
+/**
+ * Where to send a user who has not asked for a particular page, in the order we
+ * would prefer they land. Mirrors the sidebar ordering, so the first visible nav
+ * entry is also the default page.
+ */
+const LANDING_ORDER: { path: string; perm: string }[] = [
+  { path: '/dashboard', perm: 'dashboard.view' },
+  { path: '/capa', perm: 'capa.view' },
+  { path: '/risks', perm: 'risks.view' },
+  { path: '/complaints', perm: 'complaints.view' },
+  { path: '/audits', perm: 'audits.view' },
+  { path: '/non-conformities', perm: 'nc.view' },
+  { path: '/documents', perm: 'documents.view' },
+  { path: '/users', perm: 'users.view' },
+  { path: '/roles', perm: 'roles.view' },
+  { path: '/reports', perm: 'reports.view' },
+  { path: '/backup', perm: 'backup.view' },
+  { path: '/settings', perm: 'settings.view' },
+];
+
 export default function AppRouter() {
   const { bootstrapState, isAuthenticated, user, logout } = useAuthStore();
   const userId = user?.id;
   const permissionsLoaded = usePermissionStore((s) => s.loaded);
+  const permissionKeys = usePermissionStore((s) => s.keys);
   const permissionsError = usePermissionStore((s) => s.error);
   const reloadPermissions = usePermissionStore((s) => s.load);
 
@@ -107,11 +128,42 @@ export default function AppRouter() {
     );
   }
 
+  // A role can legitimately grant nothing — a newly created custom role starts
+  // empty. Sending such a user to /dashboard would render a page whose every
+  // data call is refused, which reads as a broken app rather than as a
+  // deliberate access decision.
+  if (permissionKeys.size === 0) {
+    return (
+      <div className="min-h-screen bg-[#F4F6F9] flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white rounded-xl border border-[#E2E8F0] p-7 text-center">
+          <h1 className="text-[15px] font-bold text-[#1E3A5F] mb-2">No access has been granted</h1>
+          <p className="text-[12.5px] text-[#64748B] mb-5">
+            Your account is signed in, but its role does not currently grant any
+            permissions. An administrator can assign a role or adjust yours under
+            Roles &amp; Permissions.
+          </p>
+          <button
+            onClick={logout}
+            className="px-4 py-2 text-[13px] font-medium border border-[#E2E8F0] rounded-lg hover:bg-[#F8FAFC]"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Land on the first page the user can actually open. Hard-coding /dashboard
+  // stranded anyone without dashboard.view on a page they cannot use, with the
+  // catch-all route bouncing them straight back to it.
+  const landing =
+    LANDING_ORDER.find((r) => permissionKeys.has(r.perm))?.path ?? '/dashboard';
+
   // Authenticated: show full app
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route index element={<Navigate to={landing} replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/capa" element={<CAPA />} />
         <Route path="/risks" element={<Risks />} />
@@ -125,7 +177,7 @@ export default function AppRouter() {
         <Route path="/reports" element={<Reports />} />
         <Route path="/backup" element={<Backup />} />
         <Route path="/license" element={<License />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<Navigate to={landing} replace />} />
       </Route>
     </Routes>
   );
