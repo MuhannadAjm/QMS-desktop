@@ -2,55 +2,65 @@
 
 | Field | Value |
 |---|---|
-| Phase | **Product Improvements — Stage 2: RBAC — COMPLETE** |
-| Status | **Roles and permissions are the only authorization system** |
+| Phase | **Product Improvements — Stage 3: Master Data & Dynamic Forms — COMPLETE** |
+| Status | **Lookup values are administrator-managed; complaint customer is a real reference** |
 | Date | 2026-08-23 |
-| Checkpoint tag | `improvement-checkpoint-rbac` |
-| Previous baseline | `improvement-checkpoint-pre-rbac` |
-| Next Stage | Stage 3 — form and UX fixes. **Stage 4 (Documents) not started.** |
+| Checkpoint tag | `improvement-checkpoint-master-data-forms` |
+| Previous baseline | `improvement-checkpoint-pre-master-data-ui` (= `improvement-checkpoint-rbac`) |
+| Next Stage | Stage 4 — Documents. **Not started.** |
 
 ## What this stage did
 
-The app previously decided authority from a role *name* — five hard-coded
-strings, checked in 99 places in Rust and again, separately, in the UI. Roles are
-now data, and a permission is the only thing anyone checks.
+Stage 1 built the master-data schema and the Rust commands. Nothing in the product
+reached them: `adminService.ts` had eleven wrappers and zero call sites, the Risk
+form read a hard-coded array, and the Complaint form had two unrelated free-text
+customer boxes.
 
-- **Schema** (migrations `010`, `011`): `roles`, `permissions`,
-  `role_permissions`, `user_permission_overrides`, and `users.role_id`. 53
-  permission keys, 5 seeded system roles whose templates were derived from what
-  the old guards actually allowed.
-- **Engine** (`permissions.rs`): one resolver, `DENY > ALLOW > role template`,
-  returning an empty set for an inactive user, an inactive role, or no role.
-- **Enforcement**: every command now calls `require_permission` /
-  `require_any_permission`. The legacy guards were **deleted**, not deprecated,
-  so a new command cannot reach for one.
-- **Lockout invariant**: it cannot become impossible to administer the system.
-  Computed from effective permissions, never from the name "Admin", so a custom
-  role can replace the built-in one. All seven authority-changing commands assert
-  it inside their transaction.
-- **Administration UI**: a Roles & Permissions page and a per-user permissions
-  modal, sharing a 53-key matrix grouped by module. User mode has three states —
-  Use Role Default / Allow / Deny — with the default showing what it resolves to.
-- **UI authorization**: nav entries, report availability, and the create/edit
-  affordances on ten pages now follow effective permissions. This was a real
-  defect once roles became editable: a user on a custom role matched none of the
-  hard-coded lists and would have seen an empty sidebar regardless of what the
-  role granted.
+- **Master Data page** (`/master-data`) — Risk Sources and Customers tabs. Add,
+  rename/edit, reorder, activate/deactivate, search. Gated on `masterdata.view`
+  to see and `masterdata.manage` to change.
+- **Risk source is dynamic** — loaded from the master; `types/risk.ts`
+  `RISK_SOURCES` deleted rather than left as a second, diverging list. A risk
+  whose recorded source is no longer offered keeps it, marked so.
+- **Complaint customer selector** — searchable by name or code, with the customer
+  code derived read-only. The backend takes the snapshot from the master record
+  and ignores client-supplied text, so a code that disagrees with the chosen
+  customer is unrepresentable rather than merely discouraged.
+- **Customer code became editable**, safely: unique, case-insensitive, and it does
+  not rewrite the details stored on existing complaints.
+- **Migration 012** links existing complaints to a master record only on an exact
+  business-code match. No fuzzy name matching; unlinked complaints stay readable.
+- **Lookup authorization split** — choosing a value needs the relevant business
+  capability, not master-data rights. Administering it still needs
+  `masterdata.manage`.
 
-**Authoritative reference: `docs/RBAC.md`.**
+**Authoritative reference: `docs/MASTER_DATA.md`.**
+
+## Previously requested form requirements — verified
+
+| Requirement | State |
+|---|---|
+| CAPA Type fixed enum (CORRECTIVE / PREVENTIVE / CORRECTION) | Already done — TS union + Rust validation |
+| Root Cause Method free text | Already done — `<input>` with a `<datalist>` of suggestions |
+| Responsible Person via candidate/eligibility API | Already done — `list_capa_responsible_candidates` |
+| Lead Auditor via candidate/eligibility API | Already done — `list_lead_auditor_candidates` |
+| ISO wording `ISO 9001`, not year-specific | Already done — UI and Rust defaults both `ISO 9001`; the `001` schema default is documented as superseded |
+| Risk Source from Master Data | **Done this stage** — was the only one outstanding |
 
 ## Validation performed
 
-- 59 Rust library tests, including `shipped_schema_tests`, which runs the real
-  migration files rather than a restatement of them. Verified as a tripwire: a
-  deliberate one-key widening of the Viewer template failed the run.
-- Migrations applied to a **copy of a real production database** sitting at
-  migration 007. All four applied cleanly; every pre-existing row count was
-  unchanged; `role_id`, eligibility, and `risks.source_id` all backfilled
-  correctly; `integrity_check` ok with zero foreign-key violations; re-running
-  the migrations was a no-op.
-- `cargo check` clean with zero warnings; `tsc` + `vite build` clean; the full
-  Tauri release build produces MSI and NSIS bundles.
+- **79 Rust library tests**, 0 warnings. 20 new, asserted against the real
+  migration files rather than a restated schema.
+- **Migrations applied to a copy of the owner's live database** (at migration
+  007): 008 → 012 applied cleanly, every pre-existing row count unchanged,
+  `integrity_check` ok, zero foreign-key violations, idempotent on re-run. The
+  original database was never written to.
+- **UI validated** in a browser against a temporary mock IPC layer (removed
+  afterwards): the full Risk Source flow including the rename/snapshot invariant,
+  the full Customer flow including uniqueness, and the Complaint selector
+  including code auto-resolution and inactive-customer handling.
+- Two defects found by that validation and fixed: inverted activate/deactivate
+  notices, and a User form that was unreachable at short viewport heights.
 
 ## Deferred (recorded, not passed)
 
@@ -60,12 +70,10 @@ now data, and a permission is the only thing anyone checks.
 4. Real second-Auth-user negative authorization test
 5. Supabase Pro-only "Leaked Password Protection" advisor warning
 6. **End-to-end validation in a packaged build.** Smart App Control is enforced
-   on the build machine (`VerifiedAndReputablePolicyState = 1`) and blocks
-   freshly built unsigned binaries; disabling it is out of scope by instruction.
-   The RBAC screens *were* validated in a browser against a temporary mock IPC
-   layer (see `docs/RBAC.md` §8), so the rendering and state logic are proven.
-   What is not proven is the real IPC boundary: argument casing between
-   TypeScript and Rust on the new commands, and writes persisting. First thing
-   to exercise once a signed build can run.
-7. `write_text_file` in `files.rs` — first priority for Documents Stage 4, and
-   deliberately untouched here.
+   (`VerifiedAndReputablePolicyState = 1`) and blocks freshly built unsigned
+   binaries; disabling it is out of scope by instruction. It now intermittently
+   blocks freshly built **test** binaries too — `cargo test` sometimes needs
+   several attempts, or a content change, before Windows lets the executable run.
+7. **`write_text_file` in `files.rs` lacks user authorization and path
+   sandboxing.** Untouched by instruction in Stages 2 and 3. **First priority for
+   Documents Stage 4.**

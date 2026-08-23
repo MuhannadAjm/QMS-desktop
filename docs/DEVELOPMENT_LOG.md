@@ -4,6 +4,69 @@ Chronological record of phases completed.
 
 ---
 
+## Stage 3 — Master Data Administration & Dynamic Forms
+**Date:** 2026-08-23 | **Branch:** `main` | **Tag:** `improvement-checkpoint-master-data-forms`
+
+Stage 1 built the master-data schema and commands; nothing in the product reached
+them. `adminService.ts` had eleven wrappers and zero call sites.
+
+### Frontend
+- `src/pages/MasterData.tsx` — Risk Sources and Customers tabs. Add, rename/edit,
+  reorder, activate/deactivate, search. Route `/master-data`, nav entry gated on
+  `masterdata.view`, landing-order entry added.
+- `src/components/ui/CustomerSelect.tsx` — searchable customer picker (name or
+  code) with the customer code as a read-only derived field.
+- `src/pages/Risks.tsx` — source dropdown loads from the master; a value no longer
+  offered stays selectable on the record that has it, marked "(no longer offered)".
+- `src/types/risk.ts` — `RISK_SOURCES` deleted. No hard-coded lookup list remains
+  in active UI code.
+- `src/pages/Complaints.tsx` — two free-text customer boxes replaced by the
+  selector; details drawer shows Linked / Linked · customer inactive / Not linked.
+- `src/pages/Users.tsx` — local modal replaced with the shared corrected shell.
+
+### Backend
+- `update_customer` takes `customer_code`, validates uniqueness case-insensitively,
+  runs in a transaction, and returns the count of complaints that keep their
+  original details. Historical snapshots are not rewritten.
+- `create_complaint` / `update_complaint` take `customer_ref_id`. When set, the
+  stored name and code are read from the master via `resolve_customer_snapshot`
+  and the client's text is ignored — a mismatched code is unrepresentable.
+  An inactive customer is accepted only when already on the record being edited.
+- `COMPLAINT_SQL` gained `customer_ref_id` and `customer_ref_active` **appended**
+  at indices 23/24; every existing `row.get(N)` is positional and would have
+  shifted otherwise. `LEFT JOIN customers`, so unlinked complaints stay listed.
+- `list_risk_sources` / `list_customer_options` accept either master-data rights
+  or the relevant business capability, via named constants.
+- Migration `012_complaint_customer_link.sql` — exact, case-insensitive, trimmed
+  business-code match only. No fuzzy name matching. Writes one
+  `CUSTOMER_LINK_BACKFILL` audit row.
+
+### Verified, not reimplemented
+CAPA Type enum, Root Cause Method free text, CAPA responsible and lead auditor
+candidate APIs, and `ISO 9001` wording were all already correct. Risk Source was
+the only outstanding item of the six.
+
+### Validation
+- 79 lib tests, 0 warnings (20 new). `shipped_master_data_tests` runs the real
+  migration files; `customer_link_tests` covers `resolve_customer_snapshot`.
+- Migrations run against a copy of the owner's live database at migration 007:
+  008→012 clean, no row-count change, integrity ok, 0 FK violations, idempotent.
+  The single existing complaint was correctly left unlinked (no matching customer)
+  with its text intact.
+- UI exercised in a browser against a temporary mock IPC layer, removed after.
+  Two defects found and fixed: activate/deactivate notices were inverted (the
+  handler read the row flag twice, once stale), and the User form was clipped at
+  both ends with no scrollable container at a 560px viewport.
+- `cargo check` clean · `tsc` + `vite build` clean (1659 modules) · full Tauri
+  release build produces MSI and NSIS bundles.
+
+### Note on the test gate
+Smart App Control now intermittently blocks freshly built **test** binaries, not
+just GUI ones. `cargo test` may need several attempts, or a content change, before
+Windows permits the executable. It is not a code failure and SAC was not modified.
+
+---
+
 ## Stage 2 — Role-Based Access Control
 **Date:** 2026-08-23 | **Branch:** `main` | **Tag:** `improvement-checkpoint-rbac`
 
