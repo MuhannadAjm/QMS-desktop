@@ -346,7 +346,7 @@ export default function Documents() {
 
   const handleExportCSV = async () => {
     try {
-      await exportDocumentsCSV(filtered);
+      await exportDocumentsCSV(user!.id, filtered);
     } catch {
       // user cancelled save dialog or error — silent
     }
@@ -354,7 +354,7 @@ export default function Documents() {
 
   const handleExportJSON = async () => {
     try {
-      await exportDocumentsJSON(filtered);
+      await exportDocumentsJSON(user!.id, filtered);
     } catch {
       // user cancelled save dialog or error — silent
     }

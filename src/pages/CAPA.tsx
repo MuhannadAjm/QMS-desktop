@@ -1073,10 +1073,10 @@ export default function CAPA() {
   // ── Export / Print ────────────────────────────────────────────────────────────
 
   const handleExportCSV = async () => {
-    try { await exportCapasCSV(filtered); } catch {}
+    try { await exportCapasCSV(user!.id, filtered); } catch {}
   };
   const handleExportJSON = async () => {
-    try { await exportCapasJSON(filtered); } catch {}
+    try { await exportCapasJSON(user!.id, filtered); } catch {}
   };
   const handlePrint = () => { printCapaRegister(filtered, companyName); };
 

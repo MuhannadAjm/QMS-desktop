@@ -773,8 +773,8 @@ export default function Complaints() {
           onRefresh={load}
           onPrint={() => printComplaintRegister(filtered, companyName)}
           exportOptions={[
-            { label: 'Export CSV', onClick: () => exportComplaintsCSV(filtered) },
-            { label: 'Export JSON', onClick: () => exportComplaintsJSON(filtered) },
+            { label: 'Export CSV', onClick: () => exportComplaintsCSV(userId, filtered) },
+            { label: 'Export JSON', onClick: () => exportComplaintsJSON(userId, filtered) },
           ]}
           hasData={filtered.length > 0}
         />

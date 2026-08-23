@@ -261,7 +261,7 @@ export default function Reports() {
     }
     const def = REPORTS.find(r => r.id === selected)!;
     const { headers, rows } = getHeadersAndRows(selected, data);
-    await exportReportCSV(def.fileSlug, headers, rows);
+    await exportReportCSV(currentUserId, def.fileSlug, headers, rows);
   };
 
   const handleSelectReport = (id: ReportType) => {

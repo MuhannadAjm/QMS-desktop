@@ -852,8 +852,8 @@ export default function Audits() {
           onNew={canCreate ? () => setShowCreate(true) : undefined}
           newLabel="+ New Audit"
           exportOptions={[
-            { label: 'Export CSV', onClick: () => exportAuditsCSV(filtered) },
-            { label: 'Export JSON', onClick: () => exportAuditsJSON(filtered) },
+            { label: 'Export CSV', onClick: () => exportAuditsCSV(userId, filtered) },
+            { label: 'Export JSON', onClick: () => exportAuditsJSON(userId, filtered) },
             { label: 'Print Register', onClick: () => printAuditRegister(filtered, companyName) },
           ]}
           hasData={filtered.length > 0}

@@ -678,8 +678,8 @@ export default function NonConformities() {
           onNew={canCreate ? () => setShowCreate(true) : undefined}
           newLabel="+ New NC"
           exportOptions={[
-            { label: 'Export CSV', onClick: () => exportNcsCSV(filtered) },
-            { label: 'Export JSON', onClick: () => exportNcsJSON(filtered) },
+            { label: 'Export CSV', onClick: () => exportNcsCSV(userId, filtered) },
+            { label: 'Export JSON', onClick: () => exportNcsJSON(userId, filtered) },
             { label: 'Print Register', onClick: () => printNcRegister(filtered, companyName) },
           ]}
           hasData={filtered.length > 0}

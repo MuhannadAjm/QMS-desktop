@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/plugin-dialog';
 import type { DocumentListItem } from '../types/document';
 import type { CapaListItem } from '../types/capa';
 import type { RiskListItem } from '../types/risk';
@@ -48,26 +47,45 @@ function buildDocumentCSV(docs: DocumentListItem[]): string {
   return [headers.join(','), ...rows].join('\r\n');
 }
 
+/** Registers the backend recognises; each maps to a permission it enforces. */
+export type ExportKind =
+  | 'documents' | 'capa' | 'risks' | 'complaints' | 'audits' | 'nc' | 'report';
+
+/**
+ * Hand the content to the backend, which presents the save dialog and writes to
+ * whatever the user picks.
+ *
+ * The renderer deliberately does NOT choose or even see a destination before the
+ * write. The previous version opened the dialog here and passed the resulting
+ * path to a generic write command — safe in the intended flow, but it meant the
+ * backend was trusting a path from the renderer, and anything able to call that
+ * command could write anywhere. Now the only thing crossing the boundary is the
+ * text and a suggested file name.
+ *
+ * Resolves to the chosen path, or null if the user cancelled.
+ */
 async function saveFile(
+  currentUserId: number,
+  kind: ExportKind,
   content: string,
   defaultName: string,
-  filterName: string,
-  ext: string,
-): Promise<void> {
-  const path = await save({
-    defaultPath: defaultName,
-    filters: [{ name: filterName, extensions: [ext] }],
+  ext: 'csv' | 'json',
+): Promise<string | null> {
+  return invoke<string | null>('export_text_file', {
+    currentUserId,
+    kind,
+    suggestedName: defaultName,
+    extension: ext,
+    content,
   });
-  if (!path) return;
-  await invoke<void>('write_text_file', { path, content });
 }
 
-export async function exportDocumentsCSV(docs: DocumentListItem[]): Promise<void> {
+export async function exportDocumentsCSV(currentUserId: number, docs: DocumentListItem[]): Promise<string | null> {
   const content = buildDocumentCSV(docs);
-  await saveFile(content, moduleFilename('documents', 'csv'), 'CSV Files', 'csv');
+  return saveFile(currentUserId, 'documents', content, moduleFilename('documents', 'csv'), 'csv');
 }
 
-export async function exportDocumentsJSON(docs: DocumentListItem[]): Promise<void> {
+export async function exportDocumentsJSON(currentUserId: number, docs: DocumentListItem[]): Promise<string | null> {
   const exportData = docs.map(d => ({
     doc_number: d.doc_number,
     title: d.title,
@@ -81,7 +99,7 @@ export async function exportDocumentsJSON(docs: DocumentListItem[]): Promise<voi
     created: fmtDate(d.created_at),
   }));
   const content = JSON.stringify(exportData, null, 2);
-  await saveFile(content, moduleFilename('documents', 'json'), 'JSON Files', 'json');
+  return saveFile(currentUserId, 'documents', content, moduleFilename('documents', 'json'), 'json');
 }
 
 // ── CAPA Export ───────────────────────────────────────────────────────────────
@@ -111,12 +129,12 @@ function buildCapaCSV(capas: CapaListItem[]): string {
   return [headers.join(','), ...rows].join('\r\n');
 }
 
-export async function exportCapasCSV(capas: CapaListItem[]): Promise<void> {
+export async function exportCapasCSV(currentUserId: number, capas: CapaListItem[]): Promise<string | null> {
   const content = buildCapaCSV(capas);
-  await saveFile(content, moduleFilename('capa', 'csv'), 'CSV Files', 'csv');
+  return saveFile(currentUserId, 'capa', content, moduleFilename('capa', 'csv'), 'csv');
 }
 
-export async function exportCapasJSON(capas: CapaListItem[]): Promise<void> {
+export async function exportCapasJSON(currentUserId: number, capas: CapaListItem[]): Promise<string | null> {
   const exportData = capas.map(c => ({
     capa_number: c.capa_number,
     title: c.title,
@@ -134,7 +152,7 @@ export async function exportCapasJSON(capas: CapaListItem[]): Promise<void> {
     created: fmtDate(c.created_at),
   }));
   const content = JSON.stringify(exportData, null, 2);
-  await saveFile(content, moduleFilename('capa', 'json'), 'JSON Files', 'json');
+  return saveFile(currentUserId, 'capa', content, moduleFilename('capa', 'json'), 'json');
 }
 
 // ── Risk Export ───────────────────────────────────────────────────────────────
@@ -166,12 +184,12 @@ function buildRiskCSV(risks: RiskListItem[]): string {
   return [headers.join(','), ...rows].join('\r\n');
 }
 
-export async function exportRisksCSV(risks: RiskListItem[]): Promise<void> {
+export async function exportRisksCSV(currentUserId: number, risks: RiskListItem[]): Promise<string | null> {
   const content = buildRiskCSV(risks);
-  await saveFile(content, moduleFilename('risks', 'csv'), 'CSV Files', 'csv');
+  return saveFile(currentUserId, 'risks', content, moduleFilename('risks', 'csv'), 'csv');
 }
 
-export async function exportRisksJSON(risks: RiskListItem[]): Promise<void> {
+export async function exportRisksJSON(currentUserId: number, risks: RiskListItem[]): Promise<string | null> {
   const exportData = risks.map(r => ({
     risk_number: r.risk_number,
     hazard_description: r.title,
@@ -191,7 +209,7 @@ export async function exportRisksJSON(risks: RiskListItem[]): Promise<void> {
     created: fmtDate(r.created_at),
   }));
   const content = JSON.stringify(exportData, null, 2);
-  await saveFile(content, moduleFilename('risks', 'json'), 'JSON Files', 'json');
+  return saveFile(currentUserId, 'risks', content, moduleFilename('risks', 'json'), 'json');
 }
 
 // ── Complaint Export ──────────────────────────────────────────────────────────
@@ -221,12 +239,12 @@ function buildComplaintCSV(complaints: ComplaintListItem[]): string {
   return [headers.join(','), ...rows].join('\r\n');
 }
 
-export async function exportComplaintsCSV(complaints: ComplaintListItem[]): Promise<void> {
+export async function exportComplaintsCSV(currentUserId: number, complaints: ComplaintListItem[]): Promise<string | null> {
   const content = buildComplaintCSV(complaints);
-  await saveFile(content, moduleFilename('complaints', 'csv'), 'CSV Files', 'csv');
+  return saveFile(currentUserId, 'complaints', content, moduleFilename('complaints', 'csv'), 'csv');
 }
 
-export async function exportComplaintsJSON(complaints: ComplaintListItem[]): Promise<void> {
+export async function exportComplaintsJSON(currentUserId: number, complaints: ComplaintListItem[]): Promise<string | null> {
   const exportData = complaints.map(c => ({
     complaint_number: c.complaint_number,
     customer_name: c.customer_name,
@@ -244,7 +262,7 @@ export async function exportComplaintsJSON(complaints: ComplaintListItem[]): Pro
     created: fmtDate(c.created_at),
   }));
   const content = JSON.stringify(exportData, null, 2);
-  await saveFile(content, moduleFilename('complaints', 'json'), 'JSON Files', 'json');
+  return saveFile(currentUserId, 'complaints', content, moduleFilename('complaints', 'json'), 'json');
 }
 
 // ── Audit Export ──────────────────────────────────────────────────────────────
@@ -275,12 +293,12 @@ function buildAuditCSV(audits: AuditListItem[]): string {
   return [headers.join(','), ...rows].join('\r\n');
 }
 
-export async function exportAuditsCSV(audits: AuditListItem[]): Promise<void> {
+export async function exportAuditsCSV(currentUserId: number, audits: AuditListItem[]): Promise<string | null> {
   const content = buildAuditCSV(audits);
-  await saveFile(content, moduleFilename('audits', 'csv'), 'CSV Files', 'csv');
+  return saveFile(currentUserId, 'audits', content, moduleFilename('audits', 'csv'), 'csv');
 }
 
-export async function exportAuditsJSON(audits: AuditListItem[]): Promise<void> {
+export async function exportAuditsJSON(currentUserId: number, audits: AuditListItem[]): Promise<string | null> {
   const exportData = audits.map(a => ({
     audit_number: a.audit_number,
     title: a.title,
@@ -299,7 +317,7 @@ export async function exportAuditsJSON(audits: AuditListItem[]): Promise<void> {
     created: fmtDate(a.created_at),
   }));
   const content = JSON.stringify(exportData, null, 2);
-  await saveFile(content, moduleFilename('audits', 'json'), 'JSON Files', 'json');
+  return saveFile(currentUserId, 'audits', content, moduleFilename('audits', 'json'), 'json');
 }
 
 // ── Non-Conformity Export ─────────────────────────────────────────────────────
@@ -327,22 +345,27 @@ function buildNcCSV(ncs: NcListItem[]): string {
   return [headers.join(','), ...rows].join('\r\n');
 }
 
-export async function exportNcsCSV(ncs: NcListItem[]): Promise<void> {
+export async function exportNcsCSV(currentUserId: number, ncs: NcListItem[]): Promise<string | null> {
   const content = buildNcCSV(ncs);
-  await saveFile(content, moduleFilename('non-conformities', 'csv'), 'CSV Files', 'csv');
+  return saveFile(currentUserId, 'nc', content, moduleFilename('non-conformities', 'csv'), 'csv');
 }
 
 // ── Generic report CSV export (used by Reports page) ─────────────────────────
 // slug: pre-defined filename slug per report type, e.g. "capa-report", "risk-report"
 
-export async function exportReportCSV(slug: string, headers: string[], rows: string[][]): Promise<void> {
+export async function exportReportCSV(
+  currentUserId: number,
+  slug: string,
+  headers: string[],
+  rows: string[][],
+): Promise<string | null> {
   const filename = `${slug}-${today()}.csv`;
   const csvRows = [headers, ...rows].map(r => r.map(escapeCSV).join(','));
   const content = csvRows.join('\r\n');
-  await saveFile(content, filename, 'CSV Files', 'csv');
+  return saveFile(currentUserId, 'report', content, filename, 'csv');
 }
 
-export async function exportNcsJSON(ncs: NcListItem[]): Promise<void> {
+export async function exportNcsJSON(currentUserId: number, ncs: NcListItem[]): Promise<string | null> {
   const exportData = ncs.map(n => ({
     nc_number: n.nc_number,
     title: n.title,
@@ -358,5 +381,5 @@ export async function exportNcsJSON(ncs: NcListItem[]): Promise<void> {
     created: fmtDate(n.created_at),
   }));
   const content = JSON.stringify(exportData, null, 2);
-  await saveFile(content, moduleFilename('non-conformities', 'json'), 'JSON Files', 'json');
+  return saveFile(currentUserId, 'nc', content, moduleFilename('non-conformities', 'json'), 'json');
 }

@@ -52,7 +52,7 @@ pub use dashboard::{
     get_dashboard_high_risks, get_dashboard_open_ncs, get_dashboard_overdue_capas,
     get_dashboard_recent_activity, get_dashboard_summary,
 };
-pub use files::write_text_file;
+pub use files::export_text_file;
 pub use license::{
     activate_license_online, clear_local_license_dev_only,
     create_dev_license_for_current_machine, get_hardware_fingerprint,

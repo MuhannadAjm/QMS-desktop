@@ -137,7 +137,7 @@ use commands::{
     validate_import_backup,
     validate_license_online,
     validate_local_license,
-    write_text_file,
+    export_text_file,
 };
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -279,7 +279,7 @@ pub fn run() {
             list_document_revisions,
             get_document_activity,
             open_document_file,
-            write_text_file,
+            export_text_file,
             list_capas,
             get_capa,
             create_capa,

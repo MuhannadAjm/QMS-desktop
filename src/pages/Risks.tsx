@@ -857,8 +857,8 @@ export default function Risks() {
           onRefresh={load}
           onPrint={() => printRiskRegister(filtered, companyName)}
           exportOptions={[
-            { label: 'Export CSV', onClick: () => exportRisksCSV(filtered) },
-            { label: 'Export JSON', onClick: () => exportRisksJSON(filtered) },
+            { label: 'Export CSV', onClick: () => exportRisksCSV(userId, filtered) },
+            { label: 'Export JSON', onClick: () => exportRisksJSON(userId, filtered) },
           ]}
           hasData={filtered.length > 0}
         />
