@@ -69,8 +69,14 @@ UI. It is now a permission, resolved in one place.
   violations, idempotent on re-run.
 - `cargo check` 0 warnings · `tsc` + `vite build` clean (1657 modules) ·
   full Tauri release build produces MSI and NSIS bundles.
-- **Not validated:** the rendered UI. Smart App Control is enforced on the build
-  machine and blocks freshly built unsigned binaries.
+- UI validated in a browser against a temporary mock IPC layer (removed
+  afterwards, no source touched): permission-gated nav, built-in vs custom role
+  actions, live matrix counts, dirty tracking and the discard prompt, the
+  three override states, custom role display names, and both fail-closed
+  screens. See docs/RBAC.md section 8.
+- **Not validated:** the packaged binary end-to-end. Smart App Control is
+  enforced on the build machine and blocks freshly built unsigned binaries, so
+  no write has been observed crossing the real IPC boundary.
 
 ---
 

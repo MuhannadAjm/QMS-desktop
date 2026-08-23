@@ -59,10 +59,13 @@ now data, and a permission is the only thing anyone checks.
 3. Encrypted external RSA key backup — **pre-customer gate**
 4. Real second-Auth-user negative authorization test
 5. Supabase Pro-only "Leaked Password Protection" advisor warning
-6. **GUI validation of the RBAC screens.** Smart App Control is enforced on the
-   build machine (`VerifiedAndReputablePolicyState = 1`) and blocks freshly built
-   unsigned binaries. Disabling it is out of scope by instruction. The engine,
-   migrations, and lockout invariant are covered by tests and by the real-database
-   migration run; the rendered UI is not.
+6. **End-to-end validation in a packaged build.** Smart App Control is enforced
+   on the build machine (`VerifiedAndReputablePolicyState = 1`) and blocks
+   freshly built unsigned binaries; disabling it is out of scope by instruction.
+   The RBAC screens *were* validated in a browser against a temporary mock IPC
+   layer (see `docs/RBAC.md` §8), so the rendering and state logic are proven.
+   What is not proven is the real IPC boundary: argument casing between
+   TypeScript and Rust on the new commands, and writes persisting. First thing
+   to exercise once a signed build can run.
 7. `write_text_file` in `files.rs` — first priority for Documents Stage 4, and
    deliberately untouched here.

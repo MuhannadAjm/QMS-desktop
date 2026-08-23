@@ -195,11 +195,38 @@ transaction commit atomically with the change they describe:
 
 ---
 
-## 8. Known limitation
+## 8. UI validation, and what is still unproven
 
-GUI-level validation of these screens has not been performed on the development
-machine: Smart App Control is enforced (`VerifiedAndReputablePolicyState = 1`)
-and blocks freshly built unsigned binaries. Disabling it is out of scope by
-instruction, and code signing is deferred. The engine, the migrations, and the
-lockout invariant are covered by the tests above and by a migration run against a
-copy of a real production database; the rendered UI is not.
+The packaged app could not be launched on the development machine: Smart App
+Control is enforced (`VerifiedAndReputablePolicyState = 1`) and blocks freshly
+built unsigned binaries. Disabling it is out of scope by instruction, and code
+signing is deferred.
+
+The screens were therefore validated in a browser against the Vite dev server,
+with `window.__TAURI_INTERNALS__` replaced by a temporary mock IPC layer serving
+fixture data. That harness was removed afterwards and touched no source file.
+Confirmed this way:
+
+- Sidebar entries appear only for permissions held — a fixture without
+  `complaints.view` / `nc.view` hid exactly those two entries.
+- Roles list distinguishes built-in from custom: Rename is offered only for
+  custom roles, and Activate/Deactivate follows the row's status.
+- The matrix groups by module with correct per-group counts, and the counts
+  update live as keys are toggled.
+- The template editor's dirty tracking enables Save, shows "Unsaved changes",
+  and prompts before discarding; declining keeps the edits.
+- The user modal shows the backend's `effective`, `inherited` and override counts
+  verbatim, marks the customised group, and selects the correct one of the three
+  states per key — DENY, ALLOW, and inherit each rendered as pressed on the
+  matching fixture.
+- The Users list resolves custom role display names from the database rather than
+  showing the raw `role_key`.
+- Both fail-closed screens render as intended: an empty permission set produces
+  "No access has been granted" instead of a broken dashboard, and a failed load
+  surfaces the error with Try again / Sign out.
+
+**Still unproven:** the packaged binary end-to-end — the real IPC boundary, the
+argument casing between TypeScript and Rust on the RBAC commands, and the
+persistence of writes. Every command was type-checked and its Rust side unit
+tested, but no write has been observed travelling the full path in a running
+build. That is the first thing to exercise once a signed build can run.
