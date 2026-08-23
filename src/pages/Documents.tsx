@@ -56,6 +56,10 @@ function approvalDateLabel(doc: DocumentListItem | null): string {
   if (!doc) return 'Pending approval';
   if (doc.approval_date) return fmtDate(doc.approval_date);
   if (doc.effective_date) return `${fmtDate(doc.effective_date)} (recorded before approval tracking)`;
+  // A document already CONTROLLED before this workflow existed has no approval
+  // record at all. Saying "pending" would be wrong — it is not waiting for
+  // anything — and inventing a date would be worse.
+  if (doc.status === 'CONTROLLED') return 'Not recorded';
   if (doc.rejected_at) return 'Rejected — awaiting correction';
   return 'Pending approval';
 }

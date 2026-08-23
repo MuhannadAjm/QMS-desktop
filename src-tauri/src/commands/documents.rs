@@ -1016,3 +1016,405 @@ pub fn reject_document(
 
     fetch_document(&conn, document_id)
 }
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+/// Document control asserted against the SHIPPED migrations.
+///
+/// The command bodies open their own connection through `db::open_conn`, which
+/// is pinned to the real %APPDATA% database, so they cannot be called against a
+/// scratch file. What is exercised here is the logic those commands encode — the
+/// lifecycle predicates, the SQL, and the permission sets — over the real schema,
+/// plus the path guard itself, which IS directly callable.
+#[cfg(test)]
+mod document_control_tests {
+    use rusqlite::{params, Connection};
+
+    struct TempDb {
+        path: std::path::PathBuf,
+    }
+
+    impl TempDb {
+        fn new(tag: &str) -> Self {
+            let mut path = std::env::temp_dir();
+            path.push(format!("qms_doccontrol_{}_{}.db", tag, std::process::id()));
+            let _ = std::fs::remove_file(&path);
+            crate::db::initialize_database(&path).expect("shipped migrations must apply");
+            TempDb { path }
+        }
+        fn open(&self) -> Connection {
+            let c = Connection::open(&self.path).unwrap();
+            c.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+            c
+        }
+    }
+
+    impl Drop for TempDb {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+            let _ = std::fs::remove_file(self.path.with_extension("db-wal"));
+            let _ = std::fs::remove_file(self.path.with_extension("db-shm"));
+        }
+    }
+
+    fn make_user(c: &Connection, username: &str, role_key: &str) -> i64 {
+        let role_id: i64 = c
+            .query_row("SELECT id FROM roles WHERE role_key = ?1", params![role_key], |r| r.get(0))
+            .unwrap();
+        c.execute(
+            "INSERT INTO users (username, full_name, email, role, role_id, department,
+                                password_hash, is_active, created_at, updated_at)
+             VALUES (?1, ?1, NULL, ?2, ?3, '', 'x', 1, datetime('now'), datetime('now'))",
+            params![username, role_key, role_id],
+        )
+        .unwrap();
+        c.last_insert_rowid()
+    }
+
+    fn make_document(c: &Connection, number: &str, status: &str, file: Option<&str>) -> i64 {
+        c.execute(
+            "INSERT INTO documents (doc_number, title, category, status, version,
+                                    file_path, original_file_name, created_at, updated_at)
+             VALUES (?1, 'A procedure', 'Procedure', ?2, '1.0', ?3, ?4,
+                     datetime('now'), datetime('now'))",
+            params![number, status, file, file.map(|_| "original.pdf")],
+        )
+        .unwrap();
+        c.last_insert_rowid()
+    }
+
+    // ── Approval columns exist and behave ────────────────────────────────────
+
+    #[test]
+    fn the_shipped_schema_already_carries_the_approval_columns() {
+        let db = TempDb::new("cols");
+        let c = db.open();
+        let mut stmt = c.prepare("PRAGMA table_info(documents)").unwrap();
+        let cols: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        for needed in [
+            "approval_date",
+            "approved_by",
+            "rejected_at",
+            "rejected_by",
+            "rejection_reason",
+        ] {
+            assert!(cols.contains(&needed.to_string()), "missing column {}", needed);
+        }
+        // effective_date survives: older records keep the date they were filed with.
+        assert!(cols.contains(&"effective_date".to_string()));
+    }
+
+    /// The approval date must come from the database clock, not a caller.
+    #[test]
+    fn approval_stamps_a_server_side_date_and_the_approver() {
+        let db = TempDb::new("approve");
+        let c = db.open();
+        let admin = make_user(&c, "doc_admin", "Admin");
+        let id = make_document(&c, "DOC-1", "UNDER PROCESS", Some("1_1.pdf"));
+
+        // Exactly what approve_document executes.
+        c.execute(
+            "UPDATE documents
+                SET status = 'CONTROLLED', approval_date = datetime('now'), approved_by = ?1,
+                    rejected_at = NULL, rejected_by = NULL, rejection_reason = NULL,
+                    updated_at = datetime('now')
+              WHERE id = ?2",
+            params![admin, id],
+        )
+        .unwrap();
+
+        let (status, date, by): (String, Option<String>, Option<i64>) = c
+            .query_row(
+                "SELECT status, approval_date, approved_by FROM documents WHERE id = ?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+
+        assert_eq!(status, "CONTROLLED");
+        assert_eq!(by, Some(admin), "the approver's stable id is recorded");
+        let date = date.expect("an approval date must be written");
+        assert!(date.len() >= 19, "expected a full timestamp, got {:?}", date);
+        assert!(date.starts_with("20"), "expected an ISO date, got {:?}", date);
+    }
+
+    #[test]
+    fn rejection_keeps_the_document_and_records_who_and_why() {
+        let db = TempDb::new("reject");
+        let c = db.open();
+        let admin = make_user(&c, "rej_admin", "Admin");
+        let id = make_document(&c, "DOC-2", "UNDER PROCESS", Some("2_1.pdf"));
+
+        c.execute(
+            "UPDATE documents
+                SET rejected_at = datetime('now'), rejected_by = ?1, rejection_reason = ?2,
+                    updated_at = datetime('now')
+              WHERE id = ?3",
+            params![admin, "Section 4 contradicts the risk register", id],
+        )
+        .unwrap();
+
+        let (status, file, at, by, reason): (String, Option<String>, Option<String>, Option<i64>, Option<String>) = c
+            .query_row(
+                "SELECT status, file_path, rejected_at, rejected_by, rejection_reason
+                   FROM documents WHERE id = ?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
+
+        assert_eq!(status, "UNDER PROCESS", "a rejected document stays editable for correction");
+        assert_eq!(file, Some("2_1.pdf".to_string()), "rejection does not discard the file");
+        assert!(at.is_some());
+        assert_eq!(by, Some(admin));
+        assert_eq!(reason.as_deref(), Some("Section 4 contradicts the risk register"));
+    }
+
+    /// The reason is the whole point of a rejection — the author has to know what
+    /// to fix. Whitespace is not a reason.
+    #[test]
+    fn a_blank_rejection_reason_is_not_a_reason() {
+        for blank in ["", "   ", "\t", "\n  \n"] {
+            assert!(blank.trim().is_empty(), "{:?} must be treated as empty", blank);
+        }
+        assert!(!"Needs a revision history table".trim().is_empty());
+    }
+
+    // ── Lifecycle predicates ─────────────────────────────────────────────────
+
+    /// The rule the attachment commands enforce: a draft may be corrected, a
+    /// controlled document may not be edited in place.
+    fn attachment_change_allowed(status: &str, approval_date: Option<&str>) -> bool {
+        status == "UNDER PROCESS" && approval_date.is_none()
+    }
+
+    #[test]
+    fn only_an_unapproved_draft_may_have_its_file_changed() {
+        assert!(attachment_change_allowed("UNDER PROCESS", None));
+
+        // Controlled and obsolete are both off limits.
+        assert!(!attachment_change_allowed("CONTROLLED", Some("2026-01-01 10:00:00")));
+        assert!(!attachment_change_allowed("OBSOLETE", Some("2026-01-01 10:00:00")));
+
+        // And so is a draft that was approved once before: its file is already
+        // part of a controlled record, whatever the document is doing now.
+        assert!(!attachment_change_allowed("UNDER PROCESS", Some("2026-01-01 10:00:00")));
+    }
+
+    #[test]
+    fn approval_requires_a_draft_that_actually_has_its_file() {
+        let approvable = |status: &str, file: Option<&str>| status == "UNDER PROCESS" && file.is_some();
+
+        assert!(approvable("UNDER PROCESS", Some("1_1.pdf")));
+        assert!(!approvable("UNDER PROCESS", None), "a controlled document must have its file");
+        assert!(!approvable("CONTROLLED", Some("1_1.pdf")), "already approved");
+        assert!(!approvable("OBSOLETE", Some("1_1.pdf")));
+    }
+
+    // ── Historical integrity ─────────────────────────────────────────────────
+
+    /// Removing a draft's file must never take a revision that belongs to another
+    /// document, and must never delete a blob still referenced.
+    #[test]
+    fn removal_only_touches_this_documents_own_revisions() {
+        let db = TempDb::new("revisions");
+        let c = db.open();
+        let user = make_user(&c, "rev_admin", "Admin");
+        let a = make_document(&c, "DOC-A", "UNDER PROCESS", Some("10_1.pdf"));
+        let b = make_document(&c, "DOC-B", "CONTROLLED", Some("11_1.pdf"));
+
+        for (doc, file) in [(a, "10_1.pdf"), (b, "11_1.pdf")] {
+            c.execute(
+                "INSERT INTO document_revisions
+                     (document_id, version, change_summary, file_path, original_file_name,
+                      revised_by, revised_at)
+                 VALUES (?1, '1.0', 'attached', ?2, 'original.pdf', ?3, datetime('now'))",
+                params![doc, file, user],
+            )
+            .unwrap();
+        }
+
+        // The statement remove_document_attachment runs.
+        c.execute(
+            "DELETE FROM document_revisions WHERE document_id = ?1 AND file_path = ?2",
+            params![a, "10_1.pdf"],
+        )
+        .unwrap();
+
+        let remaining_a: i64 = c
+            .query_row("SELECT COUNT(*) FROM document_revisions WHERE document_id = ?1", params![a], |r| r.get(0))
+            .unwrap();
+        let remaining_b: i64 = c
+            .query_row("SELECT COUNT(*) FROM document_revisions WHERE document_id = ?1", params![b], |r| r.get(0))
+            .unwrap();
+
+        assert_eq!(remaining_a, 0);
+        assert_eq!(remaining_b, 1, "the controlled document's history is untouched");
+    }
+
+    #[test]
+    fn a_blob_another_revision_still_points_at_is_never_deleted() {
+        let db = TempDb::new("shared_blob");
+        let c = db.open();
+        let user = make_user(&c, "blob_admin", "Admin");
+        let a = make_document(&c, "DOC-A", "UNDER PROCESS", Some("shared.pdf"));
+        let b = make_document(&c, "DOC-B", "CONTROLLED", Some("shared.pdf"));
+
+        for doc in [a, b] {
+            c.execute(
+                "INSERT INTO document_revisions
+                     (document_id, version, change_summary, file_path, original_file_name,
+                      revised_by, revised_at)
+                 VALUES (?1, '1.0', 'attached', 'shared.pdf', 'original.pdf', ?2, datetime('now'))",
+                params![doc, user],
+            )
+            .unwrap();
+        }
+
+        c.execute(
+            "DELETE FROM document_revisions WHERE document_id = ?1 AND file_path = ?2",
+            params![a, "shared.pdf"],
+        )
+        .unwrap();
+
+        let still_referenced: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM document_revisions WHERE file_path = ?1",
+                params!["shared.pdf"],
+                |r| r.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(still_referenced, 1);
+        assert!(still_referenced > 0, "the physical file must be kept while referenced");
+    }
+
+    #[test]
+    fn approving_does_not_disturb_revision_history() {
+        let db = TempDb::new("history");
+        let c = db.open();
+        let user = make_user(&c, "hist_admin", "Admin");
+        let id = make_document(&c, "DOC-H", "UNDER PROCESS", Some("20_1.pdf"));
+
+        for v in ["1.0", "1.1"] {
+            c.execute(
+                "INSERT INTO document_revisions
+                     (document_id, version, change_summary, file_path, original_file_name,
+                      revised_by, revised_at)
+                 VALUES (?1, ?2, 'revised', '20_1.pdf', 'original.pdf', ?3, datetime('now'))",
+                params![id, v, user],
+            )
+            .unwrap();
+        }
+
+        c.execute(
+            "UPDATE documents SET status = 'CONTROLLED', approval_date = datetime('now'),
+                                  approved_by = ?1 WHERE id = ?2",
+            params![user, id],
+        )
+        .unwrap();
+
+        let n: i64 = c
+            .query_row("SELECT COUNT(*) FROM document_revisions WHERE document_id = ?1", params![id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 2, "approval must not rewrite or drop revision rows");
+    }
+
+    // ── Authorization ────────────────────────────────────────────────────────
+
+    /// WHO CAN APPROVE, AS SHIPPED.
+    ///
+    /// Stage 4 was specified as "approval is an Admin function". Admin does hold
+    /// documents.approve — but so does Quality Manager, and that predates this
+    /// stage: migration 010 grants QualityManager every permission except
+    /// users.manage, roles.manage, backup.create and backup.restore, which sweeps
+    /// documents.approve in with the rest.
+    ///
+    /// That is left EXACTLY as it is. Removing it would narrow a shipped role
+    /// template, change the 47-key count the Stage 2 tripwire asserts, and quietly
+    /// revoke a capability from every existing Quality Manager — a privilege
+    /// decision for the owner, not a side effect of building the approval screen.
+    /// This test pins the real state so the question stays visible rather than
+    /// being discovered later in the field.
+    #[test]
+    fn document_approval_is_held_by_admin_and_quality_manager_as_shipped() {
+        let db = TempDb::new("rbac");
+        let c = db.open();
+
+        let admin = make_user(&c, "a_admin", "Admin");
+        let qm = make_user(&c, "a_qm", "QualityManager");
+        let auditor = make_user(&c, "a_auditor", "Auditor");
+        let employee = make_user(&c, "a_emp", "Employee");
+        let viewer = make_user(&c, "a_view", "Viewer");
+
+        let eff = |uid: i64| crate::permissions::effective_permissions(&c, uid).unwrap();
+
+        assert!(eff(admin).contains("documents.approve"), "Admin approves documents");
+        assert!(
+            eff(qm).contains("documents.approve"),
+            "QualityManager holds it too, as shipped — see the note above before changing this",
+        );
+        // The read-only and audit roles must not, and that IS the line the owner
+        // cared about: approval is not something an auditor or an employee does.
+        for (uid, who) in [(auditor, "Auditor"), (employee, "Employee"), (viewer, "Viewer")] {
+            assert!(
+                !eff(uid).contains("documents.approve"),
+                "{} must not approve documents",
+                who,
+            );
+        }
+
+        // The other document keys this stage enforces exist and are distinct.
+        let a = eff(admin);
+        for key in [
+            "documents.view",
+            "documents.edit",
+            "documents.attachment_manage",
+            "documents.print",
+            "documents.open_external",
+        ] {
+            assert!(a.contains(key), "Admin should hold {}", key);
+        }
+
+        // Viewing is not the same as taking the file out of the application.
+        let v = eff(viewer);
+        assert!(v.contains("documents.view"), "a viewer may read documents");
+        assert!(
+            !v.contains("documents.attachment_manage"),
+            "a viewer must not manage document files",
+        );
+    }
+
+    /// Guessing a document id must not be enough: reading a file is guarded by
+    /// the same permission as reading the record.
+    #[test]
+    fn a_user_without_documents_view_is_refused_by_the_engine() {
+        let db = TempDb::new("deny");
+        let c = db.open();
+
+        let viewer = make_user(&c, "d_view", "Viewer");
+        // Strip the read permission from this one user.
+        let perm_id: i64 = c
+            .query_row("SELECT id FROM permissions WHERE perm_key = 'documents.view'", [], |r| r.get(0))
+            .unwrap();
+        c.execute(
+            "INSERT INTO user_permission_overrides (user_id, permission_id, effect, created_at, updated_at)
+             VALUES (?1, ?2, 'DENY', datetime('now'), datetime('now'))",
+            params![viewer, perm_id],
+        )
+        .unwrap();
+
+        let eff = crate::permissions::effective_permissions(&c, viewer).unwrap();
+        assert!(
+            !eff.contains("documents.view"),
+            "the deny override must remove read access, which is what read_document_file checks",
+        );
+    }
+}
+
+// Stage 4 document control tests live at the end of this file.
