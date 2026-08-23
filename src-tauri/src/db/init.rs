@@ -15,6 +15,7 @@ const MIGRATION_005: &str = include_str!("sql/005_phase7_audits_nc.sql");
 const MIGRATION_006: &str = include_str!("sql/006_phase8b_cross_module_links.sql");
 const MIGRATION_007: &str = include_str!("sql/007_phase11a_username.sql");
 const MIGRATION_008: &str = include_str!("sql/008_admin_master_data.sql");
+const MIGRATION_009: &str = include_str!("sql/009_risk_source_historical_integrity.sql");
 
 fn migrations() -> Vec<Migration> {
     vec![
@@ -26,6 +27,7 @@ fn migrations() -> Vec<Migration> {
         Migration { version: "006", description: "phase8b_cross_module",     sql: MIGRATION_006 },
         Migration { version: "007", description: "phase11a_username",        sql: MIGRATION_007 },
         Migration { version: "008", description: "admin_master_data",        sql: MIGRATION_008 },
+        Migration { version: "009", description: "risk_source_history",     sql: MIGRATION_009 },
     ]
 }
 

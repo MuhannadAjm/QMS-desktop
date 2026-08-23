@@ -279,11 +279,11 @@ pub fn create_risk(
 
     conn.execute(
         "INSERT INTO risks
-             (risk_number, title, description, category, process, source,
+             (risk_number, title, description, category, process, source, source_id,
               who_might_be_affected, severity, likelihood, risk_level, status,
               mitigation_plan, recommended_actions, time_scale,
               owner_id, review_date, created_by, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'OPEN',
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, (SELECT id FROM risk_sources WHERE name = ?6), ?7, ?8, ?9, ?10, 'OPEN',
                  ?11, ?12, ?13, ?14, ?15, ?16, datetime('now'), datetime('now'))",
         params![
             &risk_number, &title, &description, &category, &process, &source,
@@ -358,7 +358,12 @@ pub fn update_risk(
     conn.execute(
         "UPDATE risks
          SET title = ?1, description = ?2, category = ?3, process = ?4,
-             source = ?5, who_might_be_affected = ?6,
+             source = ?5,
+               -- Re-resolve the stable FK from the chosen label. The label
+               -- itself stays the historical snapshot for this edit; a later
+               -- master rename will not rewrite it. See migration 009.
+               source_id = (SELECT id FROM risk_sources WHERE name = ?5),
+               who_might_be_affected = ?6,
              severity = ?7, likelihood = ?8, risk_level = ?9,
              mitigation_plan = ?10, recommended_actions = ?11, time_scale = ?12,
              owner_id = ?13, review_date = ?14, updated_at = datetime('now')

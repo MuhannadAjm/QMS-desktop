@@ -21,8 +21,9 @@ pub struct RiskSource {
     pub name: String,
     pub sort_order: i64,
     pub is_active: bool,
-    /// How many risks currently reference this source by name. Drives whether the
-    /// admin UI offers rename/deactivate rather than any destructive option.
+    /// How many risks reference this source, counted via the stable FK so the
+    /// figure survives a rename. Drives whether the admin UI offers deactivate
+    /// rather than anything destructive.
     pub usage_count: i64,
 }
 
@@ -89,7 +90,7 @@ fn query_risk_sources(active_only: bool) -> Result<Vec<RiskSource>, String> {
     let conn = db::open_conn()?;
 
     let sql = "SELECT s.id, s.name, s.sort_order, s.is_active,
-                      (SELECT COUNT(*) FROM risks r WHERE r.source = s.name)
+                      (SELECT COUNT(*) FROM risks r WHERE r.source_id = s.id OR (r.source_id IS NULL AND r.source = s.name))
                FROM risk_sources s
                {WHERE}
                ORDER BY s.sort_order ASC, s.name ASC";
@@ -163,11 +164,22 @@ pub fn create_risk_source(current_user_id: i64, name: String) -> Result<i64, Str
 
 /// Rename a risk source.
 ///
-/// risks.source stores the source NAME as free text, so a rename would orphan the
-/// display value on historical risks. To keep those records readable the existing
-/// rows are re-pointed to the new name in the same transaction — the risk still
-/// shows a meaningful source rather than a dangling string. Callers are told how
-/// many records were affected so the UI can warn before committing.
+/// Renames ONLY the master row. Historical risks are deliberately left alone.
+///
+/// An earlier version of this command re-pointed existing risks
+/// (`UPDATE risks SET source = new WHERE source = old`) so they would keep
+/// showing a "meaningful" label. That was wrong for a controlled-records system:
+/// it silently rewrote what a completed risk assessment said it was based on. A
+/// risk raised under "Incident" would afterwards read "Security Incident", with
+/// no record that the wording had ever changed.
+///
+/// Since migration 009, risks.source is an immutable snapshot of the label
+/// chosen at the time and risks.source_id is the stable FK. A rename therefore
+/// affects future selections and the master list only, while historical risks
+/// stay traceable to the same master row.
+///
+/// Returns the number of historical risks that keep the OLD label, so the UI can
+/// tell the administrator what the rename will and will not touch.
 #[tauri::command]
 pub fn rename_risk_source(
     current_user_id: i64,
@@ -206,12 +218,14 @@ pub fn rename_risk_source(
         .transaction()
         .map_err(|e| format!("Failed to start transaction: {}", e))?;
 
-    let affected = tx
-        .execute(
-            "UPDATE risks SET source = ?1, updated_at = datetime('now') WHERE source = ?2",
-            params![&new_name, &old_name],
+    // Count, do NOT modify. These risks keep their original wording.
+    let retained: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM risks WHERE source_id = ?1 OR (source_id IS NULL AND source = ?2)",
+            params![id, &old_name],
+            |r| r.get(0),
         )
-        .map_err(|e| format!("Failed to re-point existing risks: {}", e))? as i64;
+        .unwrap_or(0);
 
     tx.execute(
         "UPDATE risk_sources SET name = ?1, updated_at = datetime('now') WHERE id = ?2",
@@ -224,7 +238,10 @@ pub fn rename_risk_source(
          VALUES ('master_data', ?1, 'RENAME', ?2, ?3, datetime('now'))",
         params![
             id,
-            format!("Risk source '{}' renamed to '{}'; {} risk record(s) re-pointed", old_name, new_name, affected),
+            format!(
+                "Risk source renamed from '{}' to '{}'. {} historical risk(s) retain the original label '{}' as recorded.",
+                old_name, new_name, retained, old_name
+            ),
             current_user_id
         ],
     )
@@ -232,7 +249,7 @@ pub fn rename_risk_source(
 
     tx.commit().map_err(|e| format!("Failed to commit rename: {}", e))?;
 
-    Ok(affected)
+    Ok(retained)
 }
 
 /// Activate or deactivate. Deactivated sources disappear from selectors but remain
@@ -513,7 +530,7 @@ mod tests {
                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
              CREATE TABLE risks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source TEXT, updated_at TEXT);
+                source TEXT, source_id INTEGER, updated_at TEXT);
              CREATE TABLE customers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 customer_code TEXT NOT NULL UNIQUE,
@@ -529,32 +546,81 @@ mod tests {
         conn
     }
 
-    /// Renaming a source must carry historical risks with it. If this regresses,
-    /// old risks display a source value that no longer exists anywhere.
+    /// AUDITABILITY INVARIANT.
+    ///
+    /// Renaming a master risk source must NOT rewrite the label on risks that
+    /// were already recorded. A risk assessed under "Incident" must keep saying
+    /// "Incident" forever, while remaining traceable to the same master row via
+    /// source_id. An earlier version of rename_risk_source re-pointed those rows,
+    /// which silently changed what a completed controlled record claimed.
     #[test]
-    fn rename_repoints_historical_risks() {
+    fn rename_preserves_historical_risk_labels() {
         let conn = schema();
         conn.execute_batch(
             "INSERT INTO risk_sources (name, sort_order, is_active, created_at, updated_at)
                 VALUES ('Incident', 10, 1, 'x', 'x');
-             INSERT INTO risks (source, updated_at) VALUES ('Incident', 'x');
-             INSERT INTO risks (source, updated_at) VALUES ('Incident', 'x');
-             INSERT INTO risks (source, updated_at) VALUES ('Other', 'x');",
+             INSERT INTO risks (source, source_id, updated_at) VALUES ('Incident', 1, 'x');
+             INSERT INTO risks (source, source_id, updated_at) VALUES ('Incident', 1, 'x');
+             INSERT INTO risks (source, source_id, updated_at) VALUES ('Other', NULL, 'x');",
         )
         .unwrap();
 
-        let affected = conn
-            .execute(
-                "UPDATE risks SET source = ?1, updated_at = datetime('now') WHERE source = ?2",
-                rusqlite::params!["Incident Report", "Incident"],
+        // The rename touches ONLY the master row.
+        conn.execute(
+            "UPDATE risk_sources SET name = ?1 WHERE id = ?2",
+            rusqlite::params!["Security Incident", 1],
+        )
+        .unwrap();
+
+        let labels: Vec<String> = conn
+            .prepare("SELECT source FROM risks ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert_eq!(
+            labels,
+            vec!["Incident", "Incident", "Other"],
+            "historical risk labels must survive a master rename verbatim"
+        );
+
+        // …while still resolving to the renamed master row.
+        let via_fk: String = conn
+            .query_row(
+                "SELECT rs.name FROM risks r JOIN risk_sources rs ON rs.id = r.source_id WHERE r.id = 1",
+                [],
+                |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(affected, 2, "only the two matching risks should be re-pointed");
+        assert_eq!(via_fk, "Security Incident", "the FK must follow the rename");
+    }
 
-        let untouched: String = conn
-            .query_row("SELECT source FROM risks WHERE id = 3", [], |r| r.get(0))
+    /// usage_count must count via the stable FK. Counting by name would silently
+    /// report 0 uses after a rename and could make a still-referenced source look
+    /// safe to retire.
+    #[test]
+    fn usage_count_survives_a_rename() {
+        let conn = schema();
+        conn.execute_batch(
+            "INSERT INTO risk_sources (name, sort_order, is_active, created_at, updated_at)
+                VALUES ('Incident', 10, 1, 'x', 'x');
+             INSERT INTO risks (source, source_id, updated_at) VALUES ('Incident', 1, 'x'), ('Incident', 1, 'x');
+             UPDATE risk_sources SET name = 'Security Incident' WHERE id = 1;",
+        )
+        .unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM risks r
+                          WHERE r.source_id = s.id
+                             OR (r.source_id IS NULL AND r.source = s.name))
+                 FROM risk_sources s WHERE s.id = 1",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
-        assert_eq!(untouched, "Other", "unrelated risks must not be touched");
+        assert_eq!(count, 2, "usage must still be visible after the label changed");
     }
 
     /// usage_count drives whether the UI offers deactivate instead of anything
