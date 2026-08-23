@@ -76,8 +76,16 @@ const CAPA_SQL: &str =
 
 fn validate_capa_type(t: &str) -> Result<(), String> {
     match t {
-        "CORRECTIVE" | "PREVENTIVE" => Ok(()),
-        _ => Err(format!("Invalid CAPA type: {}. Must be CORRECTIVE or PREVENTIVE", t)),
+        // System-fixed enum. CORRECTION is the immediate fix applied to the
+        // symptom; CORRECTIVE addresses the root cause so it cannot recur;
+        // PREVENTIVE acts before an issue has occurred. These are ISO 9001
+        // concepts, not business lookup data, so they stay in code rather than
+        // becoming administrator-managed master data.
+        "CORRECTIVE" | "PREVENTIVE" | "CORRECTION" => Ok(()),
+        _ => Err(format!(
+            "Invalid CAPA type: {}. Must be CORRECTIVE, PREVENTIVE or CORRECTION",
+            t
+        )),
     }
 }
 

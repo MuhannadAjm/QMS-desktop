@@ -19,6 +19,12 @@ pub struct UserListItem {
     pub department: String,
     pub is_active: bool,
     pub created_at: String,
+    /// Assignment eligibility — deliberately separate from role. A user's role
+    /// governs what they may DO; eligibility governs which assignment selectors
+    /// they APPEAR IN. Overloading role for both is why the CAPA and audit
+    /// selectors could not be curated independently.
+    pub can_be_capa_responsible: bool,
+    pub can_be_lead_auditor: bool,
 }
 
 fn validate_role(role: &str) -> Result<(), String> {
@@ -44,7 +50,10 @@ pub fn list_users(current_user_id: i64) -> Result<Vec<UserListItem>, String> {
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, username, full_name, email, role, department, is_active, created_at
+            // Eligibility columns are APPENDED at indices 8/9. Never insert into
+            // the middle of this list: the mapping below is positional.
+            "SELECT id, username, full_name, email, role, department, is_active, created_at,
+                    can_be_capa_responsible, can_be_lead_auditor
              FROM users ORDER BY full_name ASC",
         )
         .map_err(|e| format!("Failed to prepare query: {}", e))?;
@@ -60,6 +69,8 @@ pub fn list_users(current_user_id: i64) -> Result<Vec<UserListItem>, String> {
                 department:  row.get(5)?,
                 is_active:   row.get::<_, i64>(6)? != 0,
                 created_at:  row.get(7)?,
+                can_be_capa_responsible: row.get::<_, i64>(8)? != 0,
+                can_be_lead_auditor:     row.get::<_, i64>(9)? != 0,
             })
         })
         .map_err(|e| format!("Failed to query users: {}", e))?
@@ -120,10 +131,24 @@ pub fn create_user(
 
     let hash = password::hash_password(&password)?;
 
+    // Seed assignment eligibility from the role, using the same rule as the
+    // migration-008 backfill. Without this a newly created user is eligible for
+    // nothing and never appears in the CAPA-responsible or lead-auditor
+    // selectors — which is exactly the "I created a user and it doesn't show up"
+    // defect. The admin can still override either flag afterwards via
+    // set_user_eligibility; this is only a sensible starting point.
+    let default_capa = matches!(role.as_str(), "Admin" | "QualityManager" | "Employee");
+    let default_audit = matches!(role.as_str(), "Admin" | "QualityManager" | "Auditor");
+
     conn.execute(
-        "INSERT INTO users (username, full_name, email, role, department, password_hash, is_active, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, datetime('now'), datetime('now'))",
-        params![&username, &name, &email, &role, &department, &hash],
+        "INSERT INTO users (username, full_name, email, role, department, password_hash, is_active,
+                            can_be_capa_responsible, can_be_lead_auditor, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, datetime('now'), datetime('now'))",
+        params![
+            &username, &name, &email, &role, &department, &hash,
+            if default_capa { 1 } else { 0 },
+            if default_audit { 1 } else { 0 }
+        ],
     )
     .map_err(|e| format!("Failed to create user: {}", e))?;
 
@@ -152,6 +177,8 @@ pub fn create_user(
         department,
         is_active: true,
         created_at,
+        can_be_capa_responsible: default_capa,
+        can_be_lead_auditor: default_audit,
     })
 }
 
@@ -197,7 +224,10 @@ pub fn update_user(
 
     let result = conn
         .query_row(
-            "SELECT id, username, full_name, email, role, department, is_active, created_at FROM users WHERE id = ?1",
+            // Eligibility appended at indices 8/9 — see the note on list_users.
+            "SELECT id, username, full_name, email, role, department, is_active, created_at,
+                    can_be_capa_responsible, can_be_lead_auditor
+             FROM users WHERE id = ?1",
             params![id],
             |row| {
                 Ok(UserListItem {
@@ -209,6 +239,8 @@ pub fn update_user(
                     department:  row.get(5)?,
                     is_active:   row.get::<_, i64>(6)? != 0,
                     created_at:  row.get(7)?,
+                    can_be_capa_responsible: row.get::<_, i64>(8)? != 0,
+                    can_be_lead_auditor:     row.get::<_, i64>(9)? != 0,
                 })
             },
         )
@@ -291,4 +323,210 @@ pub fn reset_user_password(current_user_id: i64, id: i64, new_password: String) 
     );
 
     Ok(())
+}
+
+/// Assignment eligibility for a user. Admin only.
+///
+/// Kept separate from create_user/update_user on purpose: those signatures are
+/// already consumed by the Users screen, and eligibility is an orthogonal concern
+/// that also needs to be togglable without re-submitting the whole user record.
+#[tauri::command]
+pub fn set_user_eligibility(
+    current_user_id: i64,
+    id: i64,
+    can_be_capa_responsible: bool,
+    can_be_lead_auditor: bool,
+) -> Result<(), String> {
+    permissions::require_admin(current_user_id)?;
+
+    let conn = db::open_conn()?;
+
+    let name: String = conn
+        .query_row("SELECT full_name FROM users WHERE id = ?1", params![id], |r| r.get(0))
+        .map_err(|_| "User not found".to_string())?;
+
+    conn.execute(
+        "UPDATE users
+            SET can_be_capa_responsible = ?1,
+                can_be_lead_auditor     = ?2,
+                updated_at              = datetime('now')
+          WHERE id = ?3",
+        params![
+            if can_be_capa_responsible { 1 } else { 0 },
+            if can_be_lead_auditor { 1 } else { 0 },
+            id
+        ],
+    )
+    .map_err(|e| format!("Failed to update eligibility: {}", e))?;
+
+    if let Err(e) = conn.execute(
+        "INSERT INTO activity_log (module, record_id, action, description, performed_by, performed_at)
+         VALUES ('users', ?1, 'ELIGIBILITY', ?2, ?3, datetime('now'))",
+        params![
+            id,
+            format!(
+                "Eligibility for {} set to CAPA responsible={}, lead auditor={}",
+                name, can_be_capa_responsible, can_be_lead_auditor
+            ),
+            current_user_id
+        ],
+    ) {
+        eprintln!("activity_log write failed for users/ELIGIBILITY: {}", e);
+    }
+
+    Ok(())
+}
+
+/// Active users eligible for a given assignment capability.
+///
+/// Guarded with require_authenticated rather than require_admin_or_quality_manager.
+/// list_users_minimal - which previously fed every assignment selector - requires
+/// Admin/QualityManager, so for an Auditor or Employee it returned an error that
+/// every caller swallowed, leaving the dropdown silently empty. Choosing who a
+/// record is assigned to is not privileged information; managing users is, and
+/// that stays restricted.
+///
+/// `capability` is "capa_responsible" or "lead_auditor".
+#[tauri::command]
+pub fn list_assignable_users(
+    current_user_id: i64,
+    capability: String,
+) -> Result<Vec<UserMinimal>, String> {
+    permissions::require_authenticated(current_user_id)?;
+
+    // Whitelist the column name - it is interpolated into SQL, so it must never
+    // come straight from the caller.
+    let column = match capability.as_str() {
+        "capa_responsible" => "can_be_capa_responsible",
+        "lead_auditor"     => "can_be_lead_auditor",
+        other => return Err(format!("Unknown assignment capability: {}", other)),
+    };
+
+    let conn = db::open_conn()?;
+
+    let sql = format!(
+        "SELECT id, full_name, role FROM users
+          WHERE is_active = 1 AND {} = 1
+          ORDER BY full_name ASC",
+        column
+    );
+
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("Failed to prepare query: {}", e))?;
+
+    let users = stmt
+        .query_map([], |row| {
+            Ok(UserMinimal {
+                id:   row.get(0)?,
+                name: row.get(1)?,
+                role: row.get(2)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query assignable users: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(users)
+}
+
+#[cfg(test)]
+mod eligibility_tests {
+    use rusqlite::Connection;
+
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                full_name TEXT NOT NULL,
+                role TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                can_be_capa_responsible INTEGER NOT NULL DEFAULT 0,
+                can_be_lead_auditor INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO users (full_name, role, is_active, can_be_capa_responsible, can_be_lead_auditor) VALUES
+                ('Alice Admin','Admin',1,1,1),
+                ('Bob Auditor','Auditor',1,0,1),
+                ('Carol Employee','Employee',1,1,0),
+                ('Dan Disabled','Admin',0,1,1),
+                ('Eve Viewer','Viewer',1,0,0);",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn eligible(conn: &Connection, column: &str) -> Vec<String> {
+        let sql = format!(
+            "SELECT full_name FROM users WHERE is_active = 1 AND {} = 1 ORDER BY full_name",
+            column
+        );
+        let mut s = conn.prepare(&sql).unwrap();
+        s.query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect()
+    }
+
+    /// Bob is an Auditor but NOT CAPA-eligible; Carol is a plain Employee who is.
+    /// Filtering by role instead of eligibility would produce the wrong list both ways.
+    #[test]
+    fn capa_responsible_list_is_filtered_by_eligibility_not_role() {
+        let conn = db();
+        assert_eq!(
+            eligible(&conn, "can_be_capa_responsible"),
+            vec!["Alice Admin", "Carol Employee"]
+        );
+    }
+
+    #[test]
+    fn lead_auditor_list_is_filtered_by_eligibility_not_role() {
+        let conn = db();
+        assert_eq!(
+            eligible(&conn, "can_be_lead_auditor"),
+            vec!["Alice Admin", "Bob Auditor"]
+        );
+    }
+
+    /// A deactivated user must never stay selectable, however eligible.
+    #[test]
+    fn inactive_users_are_excluded_even_when_eligible() {
+        let conn = db();
+        for col in ["can_be_capa_responsible", "can_be_lead_auditor"] {
+            assert!(
+                !eligible(&conn, col).contains(&"Dan Disabled".to_string()),
+                "inactive user leaked into {}",
+                col
+            );
+        }
+    }
+
+    /// The reported defect: a newly created, active, eligible user must appear
+    /// in the selector straight away.
+    #[test]
+    fn newly_created_eligible_user_appears_immediately() {
+        let conn = db();
+        conn.execute(
+            "INSERT INTO users (full_name, role, is_active, can_be_capa_responsible, can_be_lead_auditor)
+             VALUES ('Frank New','Employee',1,1,1)",
+            [],
+        )
+        .unwrap();
+        assert!(eligible(&conn, "can_be_capa_responsible").contains(&"Frank New".to_string()));
+        assert!(eligible(&conn, "can_be_lead_auditor").contains(&"Frank New".to_string()));
+    }
+
+    /// The capability string is interpolated into SQL, so only the whitelist may
+    /// ever reach the query. Anything else must be rejected before that point.
+    #[test]
+    fn unknown_capability_maps_to_no_column() {
+        let map = |c: &str| match c {
+            "capa_responsible" => Some("can_be_capa_responsible"),
+            "lead_auditor" => Some("can_be_lead_auditor"),
+            _ => None,
+        };
+        assert_eq!(map("capa_responsible"), Some("can_be_capa_responsible"));
+        assert_eq!(map("lead_auditor"), Some("can_be_lead_auditor"));
+        assert_eq!(map("1=1; DROP TABLE users--"), None);
+        assert_eq!(map("role"), None);
+    }
 }
