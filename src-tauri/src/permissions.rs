@@ -84,8 +84,34 @@ pub fn effective_permissions(
         return Ok(HashSet::new());
     }
 
-    // Role defaults, but only from an ACTIVE role. Deactivating a role must
-    // immediately stop granting anything through it.
+    // An inactive (or missing) role revokes ALL access, including anything the
+    // user holds as an explicit ALLOW override.
+    //
+    // The earlier implementation let overrides survive an inactive role, on the
+    // reasoning that an explicit user-scoped grant is not "inherited" and so is
+    // not the role's to withdraw. That is the wrong trade here: deactivating a
+    // role is an administrative kill-switch, and an administrator who disables a
+    // role reasonably expects everyone holding it to lose access immediately. If
+    // overrides survived, disabling a role would silently leave a partially
+    // privileged account behind — the opposite of what the action implies.
+    //
+    // Overrides are still PERSISTED; they simply do not evaluate. Reactivating
+    // the role restores the previous effective set exactly, with no data lost.
+    let role_active: i64 = conn
+        .query_row(
+            "SELECT COUNT(*)
+               FROM users u
+               JOIN roles r ON r.id = u.role_id
+              WHERE u.id = ?1 AND r.is_active = 1",
+            params![user_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("Failed to check role state: {}", e))?;
+    if role_active == 0 {
+        return Ok(HashSet::new());
+    }
+
+    // Role defaults.
     let mut keys: HashSet<String> = HashSet::new();
     {
         let mut stmt = conn
@@ -313,13 +339,52 @@ mod rbac_tests {
         assert!(perms(&c, 4).is_empty(), "an inactive role must not grant permissions");
     }
 
-    /// An explicit override still applies when the role is inactive: the grant is
-    /// user-scoped, not inherited.
+    /// Deactivating a role is a kill-switch: a stored ALLOW override must NOT
+    /// keep granting access through an inactive role. The override row is
+    /// retained, it simply does not evaluate.
     #[test]
-    fn override_still_applies_when_role_is_inactive() {
+    fn stored_override_does_not_bypass_an_inactive_role() {
         let c = db();
         add_override(&c, 4, 3, "ALLOW");
-        assert_eq!(perms(&c, 4), vec!["capa.view"]);
+        assert!(
+            perms(&c, 4).is_empty(),
+            "an ALLOW override must not survive deactivation of the user's role"
+        );
+
+        // …and the override is still on disk, not silently discarded.
+        let stored: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM user_permission_overrides WHERE user_id = 4",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, 1, "override must be persisted, only inert");
+    }
+
+    /// Reactivating the role must restore exactly what was effective before,
+    /// including the previously inert override.
+    #[test]
+    fn reactivating_a_role_restores_the_effective_set() {
+        let c = db();
+        add_override(&c, 4, 3, "ALLOW");
+        assert!(perms(&c, 4).is_empty());
+
+        c.execute("UPDATE roles SET is_active = 1 WHERE id = 3", []).unwrap();
+
+        // Role 3's template is the full set; plus the (now live) ALLOW override.
+        let p = perms(&c, 4);
+        assert_eq!(p.len(), 5, "reactivation restores the role template");
+        assert!(p.contains(&"capa.view".to_string()));
+    }
+
+    /// A user with no role at all must hold nothing — fail closed rather than
+    /// falling through to an empty template that looks like a clean pass.
+    #[test]
+    fn user_with_no_role_has_no_permissions() {
+        let c = db();
+        c.execute("UPDATE users SET role_id = NULL WHERE id = 2", []).unwrap();
+        assert!(perms(&c, 2).is_empty());
     }
 
     #[test]
@@ -379,7 +444,10 @@ mod rbac_tests {
                 (3,'users.manage','users','manage'),
                 (4,'roles.manage','roles','manage'),
                 (5,'audits.finding_manage','audits','finding_manage'),
-                (6,'backup.restore','backup','restore');
+                (6,'backup.restore','backup','restore'),
+                (7,'users.view','users','view'),
+                (8,'roles.view','roles','view'),
+                (9,'masterdata.view','masterdata','view');
              INSERT INTO users (id, full_name, role_id) VALUES (1,'A',1),(2,'Q',2),(3,'U',3),(4,'E',4),(5,'V',5);",
         )
         .unwrap();
@@ -393,6 +461,15 @@ mod rbac_tests {
                WHERE r.role_key='Employee' AND p.action='view' AND p.module NOT IN ('users','roles');
              INSERT INTO role_permissions SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
                WHERE r.role_key='Viewer' AND p.action='view' AND p.module NOT IN ('users','roles','settings','backup','masterdata');",
+        )
+        .unwrap();
+        // Migration 011 parity corrections.
+        c.execute_batch(
+            "DELETE FROM role_permissions
+              WHERE role_id IN (SELECT id FROM roles WHERE role_key IN ('QualityManager','Auditor'))
+                AND permission_id IN (SELECT id FROM permissions WHERE perm_key IN ('users.view','roles.view'));
+             INSERT INTO role_permissions SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
+               WHERE r.role_key='Viewer' AND p.perm_key IN ('masterdata.view','settings.view','backup.view');",
         )
         .unwrap();
 
@@ -415,5 +492,24 @@ mod rbac_tests {
         assert!(viewer.contains(&"capa.view".to_string()));
         assert!(!viewer.contains(&"capa.create".to_string()));
         assert!(!viewer.contains(&"users.manage".to_string()));
+
+
+
+        // Migration 011 parity: the user directory was require_admin, so no other
+
+
+        // role may hold users.view. A widening here leaks the directory the moment
+
+
+        // list_users migrates to require_permission.
+
+
+        assert!(!qm.contains(&"users.view".to_string()), "QM must not see the user directory");
+
+
+        assert!(!auditor.contains(&"users.view".to_string()), "Auditor must not see the user directory");
+
+
+        assert!(admin.contains(&"users.view".to_string()), "Admin keeps directory access");
     }
 }

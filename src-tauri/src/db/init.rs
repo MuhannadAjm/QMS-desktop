@@ -17,6 +17,7 @@ const MIGRATION_007: &str = include_str!("sql/007_phase11a_username.sql");
 const MIGRATION_008: &str = include_str!("sql/008_admin_master_data.sql");
 const MIGRATION_009: &str = include_str!("sql/009_risk_source_historical_integrity.sql");
 const MIGRATION_010: &str = include_str!("sql/010_rbac.sql");
+const MIGRATION_011: &str = include_str!("sql/011_rbac_template_parity.sql");
 
 fn migrations() -> Vec<Migration> {
     vec![
@@ -30,6 +31,7 @@ fn migrations() -> Vec<Migration> {
         Migration { version: "008", description: "admin_master_data",        sql: MIGRATION_008 },
         Migration { version: "009", description: "risk_source_history",     sql: MIGRATION_009 },
         Migration { version: "010", description: "rbac",                    sql: MIGRATION_010 },
+        Migration { version: "011", description: "rbac_template_parity",    sql: MIGRATION_011 },
     ]
 }
 
