@@ -30,6 +30,13 @@ pub struct ComplaintListItem {
     pub related_nc_number: Option<String>,
     pub related_capa_id: Option<i64>,
     pub related_capa_number: Option<String>,
+    /// Stable link to the customer master. NULL for complaints raised before the
+    /// master existed, or for a party that was never added to it - those keep
+    /// only their text snapshot, which stays readable either way.
+    pub customer_ref_id: Option<i64>,
+    /// Whether that master record is still active, so the UI can mark it without
+    /// a second round trip. NULL when there is no link.
+    pub customer_ref_active: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -64,14 +71,51 @@ const COMPLAINT_SQL: &str =
             c.created_by, cu.full_name AS created_by_name,
             c.created_at, c.updated_at,
             c.related_nc_id, cn.nc_number AS related_nc_number,
-            c.related_capa_id, cc.capa_number AS related_capa_number
+            c.related_capa_id, cc.capa_number AS related_capa_number,
+            c.customer_ref_id, cm.is_active AS customer_ref_active
      FROM complaints c
      LEFT JOIN users au ON c.assigned_to = au.id
      LEFT JOIN users cu ON c.created_by = cu.id
      LEFT JOIN non_conformities cn ON c.related_nc_id = cn.id
-     LEFT JOIN capas cc ON c.related_capa_id = cc.id";
+     LEFT JOIN capas cc ON c.related_capa_id = cc.id
+     LEFT JOIN customers cm ON c.customer_ref_id = cm.id";
 
 // ── Validation helpers ────────────────────────────────────────────────────────
+
+/// Resolve a selected customer into the (name, code) snapshot to store on the
+/// complaint.
+///
+/// The snapshot is taken FROM THE MASTER, never from strings the caller supplied.
+/// That is what makes "the typed Customer ID does not match the chosen customer"
+/// unrepresentable: the client cannot send a code that disagrees with the id,
+/// because the code it sends is not used at all when an id is present.
+///
+/// `allow_inactive_id` is the customer already on the record being edited. A
+/// deactivated customer stays selectable for the complaint that already
+/// references it — otherwise editing an unrelated field would force the user to
+/// re-point a historical record at a different customer.
+fn resolve_customer_snapshot(
+    conn: &rusqlite::Connection,
+    customer_ref_id: i64,
+    allow_inactive_id: Option<i64>,
+) -> Result<(String, String), String> {
+    let (name, code, is_active): (String, String, i64) = conn
+        .query_row(
+            "SELECT customer_name, customer_code, is_active FROM customers WHERE id = ?1",
+            params![customer_ref_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(|_| "Selected customer not found".to_string())?;
+
+    if is_active == 0 && allow_inactive_id != Some(customer_ref_id) {
+        return Err(format!(
+            "Customer '{}' ({}) is deactivated and cannot be selected for this complaint.",
+            name, code
+        ));
+    }
+
+    Ok((name, code))
+}
 
 fn validate_priority(p: &str) -> Result<(), String> {
     match p {
@@ -117,6 +161,10 @@ fn map_complaint_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ComplaintListI
         related_nc_number:  row.get(20)?,
         related_capa_id:    row.get(21)?,
         related_capa_number: row.get(22)?,
+        // Appended at the end deliberately: every index above is positional, so a
+        // column inserted mid-list would silently shift all of them.
+        customer_ref_id:     row.get(23)?,
+        customer_ref_active: row.get::<_, Option<i64>>(24)?.map(|v| v == 1),
     })
 }
 
@@ -209,6 +257,7 @@ pub fn get_complaint(current_user_id: i64, complaint_record_id: i64) -> Result<C
 #[tauri::command]
 pub fn create_complaint(
     current_user_id: i64,
+    customer_ref_id: Option<i64>,
     customer_name: String,
     customer_id: String,
     title: String,
@@ -222,11 +271,19 @@ pub fn create_complaint(
 ) -> Result<ComplaintListItem, String> {
     permissions::require_permission(current_user_id, "complaints.create")?;
 
-    let customer_name = customer_name.trim().to_string();
+    let conn = db::open_conn()?;
+
+    // When a master customer is chosen, the stored text comes from that record.
+    // The free-text arguments remain for complaints that predate the customer
+    // master, or that reference a party never added to it.
+    let (customer_name, customer_id_val) = match customer_ref_id {
+        Some(ref_id) => resolve_customer_snapshot(&conn, ref_id, None)?,
+        None => (customer_name.trim().to_string(), customer_id.trim().to_string()),
+    };
+
     if customer_name.is_empty() {
         return Err("Customer name is required".to_string());
     }
-    let customer_id_val = customer_id.trim().to_string();
     if customer_id_val.is_empty() {
         return Err("Customer ID is required".to_string());
     }
@@ -239,8 +296,6 @@ pub fn create_complaint(
         return Err("Received date is required".to_string());
     }
     validate_priority(&priority)?;
-
-    let conn = db::open_conn()?;
 
     // Validate issued_by user if provided
     if let Some(uid) = issued_by_user_id {
@@ -263,13 +318,13 @@ pub fn create_complaint(
         "INSERT INTO complaints
              (complaint_number, customer_name, customer_id, title, description, category,
               received_date, status, priority, assigned_to,
-              root_cause, resolution, created_by, created_at, updated_at)
+              root_cause, resolution, created_by, created_at, updated_at, customer_ref_id)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'OPEN', ?8, ?9, ?10, ?11, ?12,
-                 datetime('now'), datetime('now'))",
+                 datetime('now'), datetime('now'), ?13)",
         params![
             &complaint_number, &customer_name, &customer_id_val, &title, &description, &category,
             &received_date, &priority, &issued_by_user_id,
-            &root_cause, &resolution, current_user_id
+            &root_cause, &resolution, current_user_id, &customer_ref_id
         ],
     )
     .map_err(|e| format!("Failed to create complaint: {}", e))?;
@@ -295,6 +350,7 @@ pub fn create_complaint(
 pub fn update_complaint(
     current_user_id: i64,
     complaint_record_id: i64,
+    customer_ref_id: Option<i64>,
     customer_name: String,
     customer_id: String,
     title: String,
@@ -308,11 +364,27 @@ pub fn update_complaint(
 ) -> Result<ComplaintListItem, String> {
     permissions::require_permission(current_user_id, "complaints.edit")?;
 
-    let customer_name = customer_name.trim().to_string();
+    let conn = db::open_conn()?;
+
+    // Whoever this complaint already points at stays selectable even if they have
+    // since been deactivated, so editing the title of an old complaint cannot
+    // force it onto a different customer.
+    let existing_ref: Option<i64> = conn
+        .query_row(
+            "SELECT customer_ref_id FROM complaints WHERE id = ?1",
+            params![complaint_record_id],
+            |r| r.get(0),
+        )
+        .map_err(|_| "Complaint not found".to_string())?;
+
+    let (customer_name, customer_id_val) = match customer_ref_id {
+        Some(ref_id) => resolve_customer_snapshot(&conn, ref_id, existing_ref)?,
+        None => (customer_name.trim().to_string(), customer_id.trim().to_string()),
+    };
+
     if customer_name.is_empty() {
         return Err("Customer name is required".to_string());
     }
-    let customer_id_val = customer_id.trim().to_string();
     if customer_id_val.is_empty() {
         return Err("Customer ID is required".to_string());
     }
@@ -325,8 +397,6 @@ pub fn update_complaint(
         return Err("Received date is required".to_string());
     }
     validate_priority(&priority)?;
-
-    let conn = db::open_conn()?;
 
     if let Some(uid) = issued_by_user_id {
         let user_exists: bool = conn
@@ -346,12 +416,13 @@ pub fn update_complaint(
         "UPDATE complaints
          SET customer_name = ?1, customer_id = ?2, title = ?3, description = ?4,
              category = ?5, received_date = ?6, priority = ?7, assigned_to = ?8,
-             root_cause = ?9, resolution = ?10, updated_at = datetime('now')
-         WHERE id = ?11",
+             root_cause = ?9, resolution = ?10, customer_ref_id = ?11,
+             updated_at = datetime('now')
+         WHERE id = ?12",
         params![
             &customer_name, &customer_id_val, &title, &description,
             &category, &received_date, &priority, &issued_by_user_id,
-            &root_cause, &resolution, complaint_record_id
+            &root_cause, &resolution, &customer_ref_id, complaint_record_id
         ],
     )
     .map_err(|e| format!("Failed to update complaint: {}", e))?;

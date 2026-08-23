@@ -23,6 +23,10 @@ export interface ComplaintListItem {
   related_nc_number: string | null;
   related_capa_id: number | null;
   related_capa_number: string | null;
+  /** Stable link to the customer master; null for complaints that predate it. */
+  customer_ref_id: number | null;
+  /** Whether that master record is still active. Null when there is no link. */
+  customer_ref_active: boolean | null;
 }
 
 export interface ComplaintAttachment {

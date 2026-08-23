@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { listRecordOwnerCandidates } from '../services/adminService';
+import CustomerSelect, { type CustomerSelection } from '../components/ui/CustomerSelect';
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog';
 import { useAuthStore } from '../stores/authStore';
 import { usePermissionStore } from '../stores/permissionStore';
@@ -59,8 +60,13 @@ function ComplaintModal({ complaint, userId, onClose, onSaved }: ComplaintModalP
     return () => { cancelled = true; };
   }, [userId]);
   const isEdit = !!complaint;
-  const [customerName, setCustomerName] = useState(complaint?.customer_name ?? '');
-  const [customerId, setCustomerId] = useState(complaint?.customer_id ?? '');
+  const [customer, setCustomer] = useState<CustomerSelection>({
+    refId: complaint?.customer_ref_id ?? null,
+    name: complaint?.customer_name ?? '',
+    code: complaint?.customer_id ?? '',
+  });
+  // Only true for a complaint that already points at a deactivated customer.
+  const linkedInactive = complaint?.customer_ref_id != null && complaint.customer_ref_active === false;
   const [title, setTitle] = useState(complaint?.title ?? '');
   const [description, setDescription] = useState(complaint?.description ?? '');
   const [category, setCategory] = useState(complaint?.category ?? '');
@@ -75,8 +81,8 @@ function ComplaintModal({ complaint, userId, onClose, onSaved }: ComplaintModalP
   const [error, setError] = useState('');
 
   async function handleSave() {
-    if (!customerName.trim()) { setError('Customer name is required'); return; }
-    if (!customerId.trim()) { setError('Customer ID is required'); return; }
+    if (!customer.name.trim()) { setError('Select a customer'); return; }
+    if (!customer.code.trim()) { setError('Customer ID is missing — reselect the customer'); return; }
     if (!title.trim()) { setError('Complaint title is required'); return; }
     if (!receivedDate) { setError('Received date is required'); return; }
     setSaving(true);
@@ -86,13 +92,13 @@ function ComplaintModal({ complaint, userId, onClose, onSaved }: ComplaintModalP
       const issuedBy = issuedByUserId > 0 ? issuedByUserId : null;
       if (isEdit) {
         result = await complaintService.updateComplaint(
-          userId, complaint!.id, customerName, customerId, title,
+          userId, complaint!.id, customer.refId, customer.name, customer.code, title,
           description || null, category || null, receivedDate, priority,
           issuedBy, rootCause || null, resolution || null,
         );
       } else {
         result = await complaintService.createComplaint(
-          userId, customerName, customerId, title,
+          userId, customer.refId, customer.name, customer.code, title,
           description || null, category || null, receivedDate, priority,
           issuedBy, rootCause || null, resolution || null,
         );
@@ -115,20 +121,12 @@ function ComplaintModal({ complaint, userId, onClose, onSaved }: ComplaintModalP
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
           {(error || candidateError) && <div className="bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{error || candidateError}</div>}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Customer Name <span className="text-red-500">*</span></label>
-              <input value={customerName} onChange={e => setCustomerName(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2E5080]"
-                placeholder="Customer or organization name" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Customer ID <span className="text-red-500">*</span></label>
-              <input value={customerId} onChange={e => setCustomerId(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2E5080]"
-                placeholder="Account or customer code" />
-            </div>
-          </div>
+          <CustomerSelect
+            userId={userId}
+            value={customer}
+            onChange={setCustomer}
+            linkedInactive={linkedInactive}
+          />
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Complaint Title <span className="text-red-500">*</span></label>
@@ -477,7 +475,26 @@ function DetailsDrawer({ complaint, userId, canEdit, onClose, onUpdated }: {
                     <span className="text-gray-400 text-xs w-28 shrink-0">Customer ID</span>
                     <span className="text-gray-800 font-mono text-sm">{complaint.customer_id}</span>
                   </div>
+                  <div className="flex gap-2">
+                    <span className="text-gray-400 text-xs w-28 shrink-0">Master record</span>
+                    {/* These are the details AS RECORDED. If the customer has since
+                        been renamed the master will differ, and that is deliberate —
+                        the complaint says what it said when it was raised. */}
+                    {complaint.customer_ref_id === null ? (
+                      <span className="text-gray-600 text-sm">
+                        Not linked — recorded as text
+                      </span>
+                    ) : complaint.customer_ref_active === false ? (
+                      <span className="text-sm text-[#B91C1C] font-medium">Linked · customer inactive</span>
+                    ) : (
+                      <span className="text-sm text-[#15803D] font-medium">Linked</span>
+                    )}
+                  </div>
                 </div>
+                <p className="text-[11px] text-gray-500 mt-3">
+                  Shown as recorded when the complaint was raised. Later changes to the
+                  customer master do not alter this.
+                </p>
               </div>
             </div>
           )}
