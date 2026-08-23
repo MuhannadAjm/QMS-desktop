@@ -93,8 +93,8 @@ src-tauri/src/
     capa.rs             — 9 CAPA commands
     complaints.rs       — 11 complaint commands (9 + 2 cross-module Phase 8B)
     dashboard.rs        — 5 dashboard commands (Phase 8)
-    documents.rs        — 9 document commands
-    files.rs            — write_text_file helper
+    documents.rs        — 15 document commands (viewer, attachment lifecycle, approve/reject)
+    files.rs            — export_text_file (backend-owned save dialog; replaced write_text_file)
     license.rs          — 7 license commands (Phase 9A)
     mod.rs              — pub use re-exports
     non_conformities.rs — 10 NC commands

@@ -1,5 +1,12 @@
 # Security Notes
 
+> **Partly superseded.** The command/permission table below still names the
+> pre-RBAC roles ("Admin/QM", "Authenticated"). Since Stage 2 authorization is
+> permission-based, not role-based, and every command guards on a key from the
+> 53-key registry. For current authority see **`docs/RBAC.md`**; for document
+> files, storage and approval see **`docs/DOCUMENT_CONTROL.md`**. The principles
+> in this file still hold — the specific role names in the table do not.
+
 ## Summary of Security Controls
 
 All security enforcement is in the Rust layer. The frontend never queries the database directly.

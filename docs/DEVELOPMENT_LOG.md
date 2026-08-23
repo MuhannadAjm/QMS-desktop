@@ -4,6 +4,72 @@ Chronological record of phases completed.
 
 ---
 
+## Stage 4 — Secure Document Control, In-App Viewer & Approval Workflow
+**Date:** 2026-08-23 | **Branch:** `main` | **Tag:** `improvement-checkpoint-documents`
+
+### Filesystem security
+- `write_text_file` **removed**. It took a path and content from the renderer with
+  no user context, no permission check and `create_dir_all` on the parent — an
+  arbitrary write over anything the Windows user could touch, including `data.db`.
+  It was alive: `exportService.saveFile()` used it for every register export.
+- Replaced by `export_text_file`, which opens the native save dialog **in Rust**
+  and writes only to what the human picked in that call. The caller names a
+  register; the backend maps it to the permission. TypeScript found all thirteen
+  call sites across seven pages.
+- `storage::resolve_managed_file` — canonicalises candidate and root, compares
+  resolved ancestry. `storage::validate_import_source` — import sources must be
+  real regular files.
+
+### Documents backend (`commands/documents.rs`)
+- `get_document_file_info`, `read_document_file` (raw bytes via
+  `tauri::ipc::Response`, 100 MB cap), `print_document_file`,
+  `remove_document_attachment`, `approve_document`, `reject_document`.
+- `open_document_file` moved from `documents.view` to `documents.open_external`.
+- `attach_document_file` now refuses a non-draft and validates its import source.
+- `DocumentListItem` gained seven approval fields **appended** at indices 16–22;
+  the duplicated SELECT in `fetch_document` and `list_documents` was collapsed into
+  one `DOCUMENT_SELECT` constant and one `map_document_row`, so the positional
+  contract cannot drift in one place only.
+- **Defect fixed:** `create_document` / `update_document` bound the caller's
+  `approval_date` into `effective_date`, so the real column was never written —
+  the reason Approval Date displayed blank. Parameter removed from both.
+
+### Frontend
+- `components/documents/DocumentViewer.tsx` — pdfjs canvas viewer with page
+  navigation, zoom, fit width, print, close, open externally; non-PDF types get
+  metadata plus external open rather than being embedded.
+- `pages/Documents.tsx` — approval panel, rejection modal with mandatory reason,
+  remove-attachment confirmation, controlled-document notice, real approval
+  metadata. The editable Approval Date field is gone.
+- `scripts/copy-pdfjs-assets.mjs` + `prebuild`/`predev` — pdfjs standard fonts
+  copied from node_modules and served locally.
+
+### No migration
+Migration 008 had already added `approval_date`, `approved_by`, `rejected_at`,
+`rejected_by` and `rejection_reason`. Latest migration remains 012.
+
+### Validation
+- 99 lib tests, 0 warnings.
+- Migrations against a copy of the live database at 007: all counts unchanged,
+  both documents and all three revisions readable, integrity ok, 0 FK violations.
+- UI harness: approve, reject (whitespace reason blocked), attachment removal,
+  controlled-document protection, and permission gating proven at the IPC
+  boundary — a read-only user is denied print, open-external, remove and approve
+  by name while `read_document_file` succeeds.
+- **Not proven:** PDF pixel rendering. The harness pane never fires
+  `requestAnimationFrame`; isolated conclusively and reported. The same bytes
+  rasterised fine through pdfjs's non-rAF path.
+- `cargo check` clean · `tsc` + `vite build` clean · full Tauri release build
+  produces MSI and NSIS bundles.
+
+### Reported, not changed
+Backup restore/create still accept uncontained frontend paths (and ignore the
+validation helpers that already exist beside them); the other five modules' file
+commands lack the canonicalise-and-contain check; Quality Manager holds
+`documents.approve` as shipped. All pre-existing. See `docs/DOCUMENT_CONTROL.md` §9.
+
+---
+
 ## Stage 3 — Master Data Administration & Dynamic Forms
 **Date:** 2026-08-23 | **Branch:** `main` | **Tag:** `improvement-checkpoint-master-data-forms`
 

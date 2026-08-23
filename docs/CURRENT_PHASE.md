@@ -2,65 +2,54 @@
 
 | Field | Value |
 |---|---|
-| Phase | **Product Improvements — Stage 3: Master Data & Dynamic Forms — COMPLETE** |
-| Status | **Lookup values are administrator-managed; complaint customer is a real reference** |
+| Phase | **Product Improvements — Stage 4: Secure Document Control — COMPLETE** |
+| Status | **Arbitrary-write primitive removed; documents viewed, controlled and approved in-app** |
 | Date | 2026-08-23 |
-| Checkpoint tag | `improvement-checkpoint-master-data-forms` |
-| Previous baseline | `improvement-checkpoint-pre-master-data-ui` (= `improvement-checkpoint-rbac`) |
-| Next Stage | Stage 4 — Documents. **Not started.** |
+| Checkpoint tag | `improvement-checkpoint-documents` |
+| Previous baseline | `improvement-checkpoint-pre-documents` (= `improvement-checkpoint-master-data-forms`) |
+| Next Stage | None scheduled. |
 
 ## What this stage did
 
-Stage 1 built the master-data schema and the Rust commands. Nothing in the product
-reached them: `adminService.ts` had eleven wrappers and zero call sites, the Risk
-form read a hard-coded array, and the Complaint form had two unrelated free-text
-customer boxes.
+- **Removed `write_text_file`**, the one unauthenticated arbitrary-file-write
+  command. Replaced by `export_text_file`, which opens the save dialog in Rust so
+  the renderer never supplies a destination at all.
+- **In-app PDF viewer**. Bytes are fetched by document id over IPC and rendered
+  with pdfjs — no `file://`, no asset protocol, no custom scheme. Page navigation,
+  zoom, fit width, print, close, open externally.
+- **Attachment lifecycle**: attach, replace and remove for drafts; all three
+  refused once a document is controlled or has ever been approved. This closes the
+  owner's report that attached files could not be deleted.
+- **Approve / Reject** with a system-generated approval date, the approver's
+  stable id, and a mandatory rejection reason.
+- **Path safety**: `resolve_managed_file` canonicalises both sides and compares
+  resolved ancestry rather than string prefixes.
 
-- **Master Data page** (`/master-data`) — Risk Sources and Customers tabs. Add,
-  rename/edit, reorder, activate/deactivate, search. Gated on `masterdata.view`
-  to see and `masterdata.manage` to change.
-- **Risk source is dynamic** — loaded from the master; `types/risk.ts`
-  `RISK_SOURCES` deleted rather than left as a second, diverging list. A risk
-  whose recorded source is no longer offered keeps it, marked so.
-- **Complaint customer selector** — searchable by name or code, with the customer
-  code derived read-only. The backend takes the snapshot from the master record
-  and ignores client-supplied text, so a code that disagrees with the chosen
-  customer is unrepresentable rather than merely discouraged.
-- **Customer code became editable**, safely: unique, case-insensitive, and it does
-  not rewrite the details stored on existing complaints.
-- **Migration 012** links existing complaints to a master record only on an exact
-  business-code match. No fuzzy name matching; unlinked complaints stay readable.
-- **Lookup authorization split** — choosing a value needs the relevant business
-  capability, not master-data rights. Administering it still needs
-  `masterdata.manage`.
+**Authoritative reference: `docs/DOCUMENT_CONTROL.md`.**
 
-**Authoritative reference: `docs/MASTER_DATA.md`.**
+## The reason Approval Date was blank
 
-## Previously requested form requirements — verified
+`create_document` and `update_document` accepted an `approval_date` argument and
+bound it into the **`effective_date`** column, so the form's "Approval Date" was a
+free-text field that never touched `documents.approval_date`. The parameter is
+gone from both commands; the date is now written only by `approve_document`, from
+the database clock. Existing `effective_date` values are preserved and still
+displayed for older records.
 
-| Requirement | State |
-|---|---|
-| CAPA Type fixed enum (CORRECTIVE / PREVENTIVE / CORRECTION) | Already done — TS union + Rust validation |
-| Root Cause Method free text | Already done — `<input>` with a `<datalist>` of suggestions |
-| Responsible Person via candidate/eligibility API | Already done — `list_capa_responsible_candidates` |
-| Lead Auditor via candidate/eligibility API | Already done — `list_lead_auditor_candidates` |
-| ISO wording `ISO 9001`, not year-specific | Already done — UI and Rust defaults both `ISO 9001`; the `001` schema default is documented as superseded |
-| Risk Source from Master Data | **Done this stage** — was the only one outstanding |
+No migration was required — migration 008 had already added all five approval
+columns.
 
 ## Validation performed
 
-- **79 Rust library tests**, 0 warnings. 20 new, asserted against the real
-  migration files rather than a restated schema.
-- **Migrations applied to a copy of the owner's live database** (at migration
-  007): 008 → 012 applied cleanly, every pre-existing row count unchanged,
-  `integrity_check` ok, zero foreign-key violations, idempotent on re-run. The
-  original database was never written to.
-- **UI validated** in a browser against a temporary mock IPC layer (removed
-  afterwards): the full Risk Source flow including the rename/snapshot invariant,
-  the full Customer flow including uniqueness, and the Complaint selector
-  including code auto-resolution and inactive-customer handling.
-- Two defects found by that validation and fixed: inverted activate/deactivate
-  notices, and a User form that was unreachable at short viewport heights.
+- **99 Rust library tests**, 0 warnings (16 new: 5 path-safety, 4 export-guard,
+  11 document-control), asserted against the real migration files.
+- **Migrations against a copy of the owner's live database** (at 007): 008→012
+  applied cleanly, every count unchanged, **both documents and all three revisions
+  readable**, `integrity_check` ok, zero FK violations. Original never written to.
+- **UI validated** against a temporary mock IPC layer: approve, reject with
+  mandatory reason, attachment removal with confirmation, controlled-document
+  protection, and permission gating proven at the IPC boundary — a read-only user
+  sees only Preview and is denied print, open-external, remove and approve by name.
 
 ## Deferred (recorded, not passed)
 
@@ -69,11 +58,23 @@ customer boxes.
 3. Encrypted external RSA key backup — **pre-customer gate**
 4. Real second-Auth-user negative authorization test
 5. Supabase Pro-only "Leaked Password Protection" advisor warning
-6. **End-to-end validation in a packaged build.** Smart App Control is enforced
-   (`VerifiedAndReputablePolicyState = 1`) and blocks freshly built unsigned
-   binaries; disabling it is out of scope by instruction. It now intermittently
-   blocks freshly built **test** binaries too — `cargo test` sometimes needs
-   several attempts, or a content change, before Windows lets the executable run.
-7. **`write_text_file` in `files.rs` lacks user authorization and path
-   sandboxing.** Untouched by instruction in Stages 2 and 3. **First priority for
-   Documents Stage 4.**
+6. **PDF pixel rendering is unproven.** The validation harness's browser pane never
+   fires `requestAnimationFrame`, which pdfjs's canvas loop depends on. Isolated
+   conclusively: `setTimeout` fires, rAF does not, and a font-free PDF hangs
+   identically. The same bytes rasterised correctly through pdfjs's non-rAF path
+   (8521 dark pixels), so delivery, parsing and rasterisation are proven — only the
+   frame-driven scheduling could not be exercised. Smart App Control still blocks
+   the packaged binary, so this needs a signed build to close.
+7. **Backup path containment.** `restore_local_backup` and `create_local_backup`
+   accept frontend absolute paths with no containment check, and the
+   `validate_backup_path` / `validate_import_backup` helpers that implement exactly
+   that check are never called by them. Restore overwrites the live database.
+   Pre-existing; the highest-value remaining hardening target.
+8. **Five other modules' file commands** (CAPA, risks, complaints, audits, NC) do
+   not yet use `resolve_managed_file` / `validate_import_source`. Not currently
+   exploitable — every writer generates the filename — but without defence in
+   depth. Pre-existing.
+9. **Approval rights.** Quality Manager holds `documents.approve` as shipped,
+   because migration 010 grants it everything except four keys. Left unchanged
+   deliberately; narrowing it is a privilege decision for the owner. See
+   `docs/DOCUMENT_CONTROL.md` §7.
