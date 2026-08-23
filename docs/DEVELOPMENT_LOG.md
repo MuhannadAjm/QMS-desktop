@@ -4,6 +4,76 @@ Chronological record of phases completed.
 
 ---
 
+## Stage 2 — Role-Based Access Control
+**Date:** 2026-08-23 | **Branch:** `main` | **Tag:** `improvement-checkpoint-rbac`
+
+Authority was a role *name* checked in 99 places in Rust and, separately, in the
+UI. It is now a permission, resolved in one place.
+
+### Schema
+- `010_rbac.sql` — `roles`, `permissions`, `role_permissions`,
+  `user_permission_overrides`; `users.role_id` appended and backfilled from the
+  legacy role string. 53 permission keys; 5 system roles whose templates were
+  derived from what the deleted guards actually allowed.
+- `011_rbac_template_parity.sql` — corrects two drifts in that derivation:
+  removes `users.view` / `roles.view` from Quality Manager and Auditor (the user
+  directory was Admin-only), and restores `masterdata.view`, `settings.view`,
+  `backup.view` to Viewer. Final shapes: Admin 53, QM 47, Auditor 13,
+  Employee 11, Viewer 11.
+- Migration runner made **transactional** — a failing migration previously left
+  the database half-changed and unrecorded.
+
+### Engine — `src-tauri/src/permissions.rs`
+- `effective_permissions` — `DENY > ALLOW > role template`; empty set for an
+  inactive user, an inactive role, or no role. A stored override never
+  resurrects access through an inactive role.
+- `require_permission` / `require_any_permission` — the only authorization
+  mechanism. `require_admin`, `require_admin_or_quality_manager` and the rest
+  were deleted, so a new command cannot accidentally use one.
+- `assert_control_path_retained` — refuses any change leaving nobody who is
+  active, on an active role, holding both `users.manage` and `roles.manage`.
+  Computed from effective permissions, never from the name "Admin". Called
+  inside the transaction by all seven authority-changing commands.
+
+### Commands
+- New `commands/rbac_admin.rs` — 12 commands: registry reads, role CRUD (no
+  delete), template replacement, and per-user role/override management.
+- `validate_role` changed from a hard-coded list of five to a data-driven check,
+  without which custom roles were unassignable.
+- `create_user` / `update_user` now set `role_id`; previously a new user got a
+  NULL `role_id` and therefore no permissions at all.
+- Assignment candidate APIs return `{id, name}` only — narrower than the old
+  minimal-user projection, which leaked email and department into selectors.
+
+### UI
+- `src/pages/RolesPermissions.tsx`, `src/components/users/UserPermissionsModal.tsx`,
+  `src/components/ui/PermissionMatrix.tsx`, `src/services/rbacService.ts`,
+  `src/stores/permissionStore.ts`.
+- The matrix groups 53 keys by module; user mode is three-state, with the default
+  option showing the value it resolves to.
+- Effective permissions displayed are always the backend's answer, re-fetched
+  after every change — never recomputed in the browser.
+- Every remaining role-name check removed: nav entries, report availability, and
+  create/edit affordances on ten pages. Backup now separates `backup.create` from
+  `backup.restore` instead of treating both as "Admin only".
+- The store fails closed, so the router waits for it, surfaces a retry on
+  failure, sends the user to the first page they can open rather than a fixed
+  `/dashboard`, and shows an explicit screen when a role grants nothing.
+
+### Validation
+- 59 lib tests (`rbac_tests`, `propagation_tests`, `shipped_schema_tests`).
+  `shipped_schema_tests` runs the real migration files; verified as a tripwire by
+  deliberately widening the Viewer template and watching it fail.
+- Migrations applied to a copy of a real production database at migration 007:
+  clean, no row-count change, correct backfills, `integrity_check` ok, zero FK
+  violations, idempotent on re-run.
+- `cargo check` 0 warnings · `tsc` + `vite build` clean (1657 modules) ·
+  full Tauri release build produces MSI and NSIS bundles.
+- **Not validated:** the rendered UI. Smart App Control is enforced on the build
+  machine and blocks freshly built unsigned binaries.
+
+---
+
 ## Phase 11X — Standalone License Admin Desktop App
 **Date:** 2026-06-16 | **Branch:** `phase-11b-license-sidebar-navigation`
 
