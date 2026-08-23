@@ -1,3 +1,16 @@
+//! Customer complaints.
+//!
+//! A complaint carries BOTH a stable link to the customer master
+//! (`customer_ref_id`) and a text snapshot of the customer's name and code as
+//! they were when it was raised (`customer_name`, `customer_id`). That is not
+//! redundancy: the link is what makes a complaint findable and filterable, and
+//! the snapshot is what stops a later rename in the master from rewriting what a
+//! controlled record says. Editing one must never change the other.
+//!
+//! Complaints raised before the customer master existed have the snapshot and no
+//! link. They stay fully readable that way, and migration 012 attaches a link
+//! only where the business code matches exactly.
+
 use rusqlite::params;
 use serde::Serialize;
 use crate::{db, permissions, storage};
@@ -898,4 +911,107 @@ pub fn create_capa_from_complaint(
     );
 
     fetch_complaint(&conn, complaint_record_id)
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod customer_link_tests {
+    use super::resolve_customer_snapshot;
+    use rusqlite::Connection;
+
+    fn db() -> Connection {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE customers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_code TEXT NOT NULL UNIQUE,
+                customer_name TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1);
+             INSERT INTO customers (id, customer_code, customer_name, is_active) VALUES
+                (1, 'CUST-001', 'Contoso Medical', 1),
+                (2, 'CUST-002', 'Former Client',   0);",
+        )
+        .unwrap();
+        c
+    }
+
+    /// THE POINT OF THE WHOLE CHANGE.
+    ///
+    /// The old form had Customer Name and Customer ID as two unrelated text
+    /// boxes, so a complaint could carry one customer's name and another's code.
+    /// The snapshot is now read from the master row, so the caller's strings are
+    /// not consulted at all — a mismatch is unrepresentable rather than merely
+    /// discouraged by the UI.
+    #[test]
+    fn the_snapshot_comes_from_the_master_not_from_the_caller() {
+        let c = db();
+        let (name, code) = resolve_customer_snapshot(&c, 1, None).unwrap();
+        assert_eq!(name, "Contoso Medical");
+        assert_eq!(code, "CUST-001", "the code is derived, so it always matches the customer");
+    }
+
+    #[test]
+    fn an_unknown_customer_is_refused() {
+        let c = db();
+        assert!(resolve_customer_snapshot(&c, 999, None).is_err());
+    }
+
+    /// A deactivated customer must not be attachable to a NEW complaint.
+    #[test]
+    fn a_deactivated_customer_cannot_be_chosen_for_a_new_complaint() {
+        let c = db();
+        let err = resolve_customer_snapshot(&c, 2, None).unwrap_err();
+        assert!(err.contains("deactivated"), "the refusal should say why: {}", err);
+    }
+
+    /// …but the complaint that ALREADY references it must still be editable.
+    /// Otherwise changing an old complaint's title would force it onto a
+    /// different customer, falsifying a controlled record.
+    #[test]
+    fn a_deactivated_customer_survives_an_edit_of_the_complaint_that_uses_it() {
+        let c = db();
+        let (name, code) = resolve_customer_snapshot(&c, 2, Some(2))
+            .expect("the customer already on this record stays valid");
+        assert_eq!(name, "Former Client");
+        assert_eq!(code, "CUST-002");
+    }
+
+    /// The exemption is scoped to that one customer — it is not a general
+    /// "editing lets you pick anything" hole.
+    #[test]
+    fn editing_does_not_unlock_other_deactivated_customers() {
+        let c = db();
+        c.execute(
+            "INSERT INTO customers (id, customer_code, customer_name, is_active)
+             VALUES (3, 'CUST-003', 'Another Dormant Co', 0)",
+            [],
+        )
+        .unwrap();
+
+        // Editing a complaint whose customer is 2 must not permit switching to 3.
+        assert!(
+            resolve_customer_snapshot(&c, 3, Some(2)).is_err(),
+            "only the customer already on the record is exempt",
+        );
+    }
+
+    /// Renaming the master afterwards changes what a NEW complaint would record,
+    /// and nothing else — the stored snapshot of an existing one is not consulted
+    /// here at all.
+    #[test]
+    fn a_later_master_rename_only_affects_the_next_snapshot() {
+        let c = db();
+        let (before, _) = resolve_customer_snapshot(&c, 1, None).unwrap();
+        c.execute(
+            "UPDATE customers SET customer_name = 'Contoso Medical GmbH' WHERE id = 1",
+            [],
+        )
+        .unwrap();
+        let (after, code) = resolve_customer_snapshot(&c, 1, None).unwrap();
+
+        assert_eq!(before, "Contoso Medical");
+        assert_eq!(after, "Contoso Medical GmbH");
+        assert_eq!(code, "CUST-001", "the code did not change, so history stays traceable");
+    }
 }

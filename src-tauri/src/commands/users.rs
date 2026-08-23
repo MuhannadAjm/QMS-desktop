@@ -590,7 +590,7 @@ mod candidate_tests {
         )
         .unwrap();
 
-        let mut stmt = c
+        let stmt = c
             .prepare("SELECT id, full_name FROM users WHERE is_active = 1 AND can_be_capa_responsible = 1")
             .unwrap();
         assert_eq!(stmt.column_count(), 2, "candidate query must project exactly two columns");

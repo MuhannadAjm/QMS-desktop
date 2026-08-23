@@ -49,6 +49,31 @@ pub struct CustomerOption {
     pub customer_name: String,
 }
 
+// ── Lookup authorization ──────────────────────────────────────────────────────
+
+/// Permissions that may READ the risk source list.
+///
+/// Named rather than inlined so the authorization decision is testable: a test
+/// can assert that a role holding only `risks.create` satisfies this, without
+/// standing up a Tauri command. Reading a lookup list is part of doing the work;
+/// administering it is a separate act guarded by `masterdata.manage`.
+pub const RISK_SOURCE_LOOKUP_PERMISSIONS: [&str; 5] = [
+    "masterdata.view",
+    "masterdata.manage",
+    "risks.view",
+    "risks.create",
+    "risks.edit",
+];
+
+/// Permissions that may READ the customer picker list. Same reasoning.
+pub const CUSTOMER_LOOKUP_PERMISSIONS: [&str; 5] = [
+    "masterdata.view",
+    "masterdata.manage",
+    "complaints.view",
+    "complaints.create",
+    "complaints.edit",
+];
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn log_admin_activity(
@@ -79,16 +104,7 @@ pub fn list_risk_sources(current_user_id: i64) -> Result<Vec<RiskSource>, String
     // risk is part of doing the work, not part of administering the lookup table.
     // A custom role granted risks.create must not also need master-data rights
     // just to populate one dropdown.
-    permissions::require_any_permission(
-        current_user_id,
-        &[
-            "masterdata.view",
-            "masterdata.manage",
-            "risks.view",
-            "risks.create",
-            "risks.edit",
-        ],
-    )?;
+    permissions::require_any_permission(current_user_id, &RISK_SOURCE_LOOKUP_PERMISSIONS)?;
     query_risk_sources(true)
 }
 
@@ -334,16 +350,7 @@ pub fn reorder_risk_sources(current_user_id: i64, ordered_ids: Vec<i64>) -> Resu
 /// `masterdata.manage`.
 #[tauri::command]
 pub fn list_customer_options(current_user_id: i64) -> Result<Vec<CustomerOption>, String> {
-    permissions::require_any_permission(
-        current_user_id,
-        &[
-            "masterdata.view",
-            "masterdata.manage",
-            "complaints.view",
-            "complaints.create",
-            "complaints.edit",
-        ],
-    )?;
+    permissions::require_any_permission(current_user_id, &CUSTOMER_LOOKUP_PERMISSIONS)?;
 
     let conn = db::open_conn()?;
     let mut stmt = conn
@@ -778,5 +785,564 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM complaints WHERE customer_ref_id = 1", [], |r| r.get(0))
             .unwrap();
         assert_eq!(still_linked, 2, "deactivation must never orphan historical complaints");
+    }
+}
+
+/// Master data behaviour asserted against the SHIPPED migration files.
+///
+/// The module above builds a hand-written subset of the schema. That proves the
+/// SQL runs, but it cannot catch drift: edit a migration and those tests still
+/// pass, because they carry their own copy of the tables. These run the real
+/// migration runner over the real files, so what is asserted here is the
+/// artifact that actually ships.
+#[cfg(test)]
+mod shipped_master_data_tests {
+    use rusqlite::{params, Connection};
+
+    struct TempDb {
+        path: std::path::PathBuf,
+    }
+
+    impl TempDb {
+        fn new(tag: &str) -> Self {
+            let mut path = std::env::temp_dir();
+            path.push(format!("qms_masterdata_{}_{}.db", tag, std::process::id()));
+            let _ = std::fs::remove_file(&path);
+            crate::db::initialize_database(&path).expect("shipped migrations must apply cleanly");
+            TempDb { path }
+        }
+
+        fn open(&self) -> Connection {
+            let c = Connection::open(&self.path).unwrap();
+            c.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+            c
+        }
+    }
+
+    impl Drop for TempDb {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+            let _ = std::fs::remove_file(self.path.with_extension("db-wal"));
+            let _ = std::fs::remove_file(self.path.with_extension("db-shm"));
+        }
+    }
+
+    fn names(c: &Connection, sql: &str) -> Vec<String> {
+        let mut stmt = c.prepare(sql).unwrap();
+        let v: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        v
+    }
+
+    fn count(c: &Connection, sql: &str) -> i64 {
+        c.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    /// The selector query the Risk form uses, mirroring list_risk_sources.
+    fn active_source_names(c: &Connection) -> Vec<String> {
+        names(
+            c,
+            "SELECT name FROM risk_sources WHERE is_active = 1 ORDER BY sort_order ASC, name ASC",
+        )
+    }
+
+    // ── Risk sources ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn shipped_migrations_seed_the_suggested_risk_sources() {
+        let db = TempDb::new("seed");
+        let c = db.open();
+
+        let seeded = active_source_names(&c);
+        assert_eq!(seeded.len(), 7, "seven suggested sources ship with the product");
+        for expected in [
+            "Internal Audit",
+            "Customer Feedback",
+            "Process Review",
+            "Management Review",
+            "Supplier Assessment",
+            "Incident",
+            "Other",
+        ] {
+            assert!(seeded.iter().any(|s| s == expected), "missing seed: {}", expected);
+        }
+        // Ordering is data, not alphabetical chance — the admin can reorder it.
+        assert_eq!(seeded[0], "Internal Audit", "sort_order drives the selector order");
+    }
+
+    #[test]
+    fn a_deactivated_source_leaves_the_selector_but_keeps_its_risks() {
+        let db = TempDb::new("deactivate");
+        let c = db.open();
+
+        let id: i64 = c
+            .query_row(
+                "SELECT id FROM risk_sources WHERE name = 'Incident'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+
+        c.execute(
+            "INSERT INTO risks (risk_number, title, source, source_id, status, created_at, updated_at)
+             VALUES ('R-1', 'Spill', 'Incident', ?1, 'OPEN', datetime('now'), datetime('now'))",
+            params![id],
+        )
+        .unwrap();
+
+        c.execute("UPDATE risk_sources SET is_active = 0 WHERE id = ?1", params![id])
+            .unwrap();
+
+        assert!(
+            !active_source_names(&c).iter().any(|s| s == "Incident"),
+            "a deactivated source must not be offered on a new risk",
+        );
+        // The record that used it is untouched and still resolvable.
+        let (snapshot, still_linked): (String, i64) = c
+            .query_row(
+                "SELECT source, source_id FROM risks WHERE risk_number = 'R-1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(snapshot, "Incident");
+        assert_eq!(still_linked, id, "the stable FK survives deactivation");
+    }
+
+    /// THE AUDITABILITY INVARIANT, against the shipped schema.
+    ///
+    /// Renaming the master must move the master label and nothing else. A risk
+    /// assessed under "Internal Audit" has to keep saying "Internal Audit" even
+    /// after the master becomes "Internal QMS Audit", or a completed controlled
+    /// record would silently change what it claims to be based on.
+    #[test]
+    fn renaming_a_source_does_not_rewrite_the_historical_risk_snapshot() {
+        let db = TempDb::new("rename");
+        let c = db.open();
+
+        let id: i64 = c
+            .query_row(
+                "SELECT id FROM risk_sources WHERE name = 'Internal Audit'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+
+        c.execute(
+            "INSERT INTO risks (risk_number, title, source, source_id, status, created_at, updated_at)
+             VALUES ('R-1', 'Old finding', 'Internal Audit', ?1, 'OPEN', datetime('now'), datetime('now'))",
+            params![id],
+        )
+        .unwrap();
+
+        // Exactly what rename_risk_source does: the master row only.
+        c.execute(
+            "UPDATE risk_sources SET name = 'Internal QMS Audit' WHERE id = ?1",
+            params![id],
+        )
+        .unwrap();
+
+        let (snapshot, linked): (String, i64) = c
+            .query_row(
+                "SELECT source, source_id FROM risks WHERE risk_number = 'R-1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+
+        assert_eq!(
+            snapshot, "Internal Audit",
+            "history must read as it did when the risk was raised",
+        );
+        assert_eq!(linked, id, "and stay traceable to the same master row");
+
+        let master: String = c
+            .query_row("SELECT name FROM risk_sources WHERE id = ?1", params![id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(master, "Internal QMS Audit", "the master label did change");
+
+        // A newly raised risk picks up the current wording.
+        assert!(active_source_names(&c).iter().any(|s| s == "Internal QMS Audit"));
+    }
+
+    /// Deletion is not a supported operation, and the schema is what enforces it
+    /// for anything already referenced.
+    #[test]
+    fn a_referenced_source_cannot_be_destructively_deleted() {
+        let db = TempDb::new("nodelete");
+        let c = db.open();
+
+        let id: i64 = c
+            .query_row("SELECT id FROM risk_sources WHERE name = 'Other'", [], |r| r.get(0))
+            .unwrap();
+        c.execute(
+            "INSERT INTO risks (risk_number, title, source, source_id, status, created_at, updated_at)
+             VALUES ('R-9', 'Referenced', 'Other', ?1, 'OPEN', datetime('now'), datetime('now'))",
+            params![id],
+        )
+        .unwrap();
+
+        let deleted = c.execute("DELETE FROM risk_sources WHERE id = ?1", params![id]);
+        assert!(
+            deleted.is_err(),
+            "the FK from risks.source_id must refuse to orphan a referenced source",
+        );
+        assert_eq!(count(&c, "SELECT COUNT(*) FROM risks WHERE risk_number = 'R-9'"), 1);
+    }
+
+    // ── Customers ────────────────────────────────────────────────────────────
+
+    fn add_customer(c: &Connection, code: &str, name: &str, active: bool) -> i64 {
+        c.execute(
+            "INSERT INTO customers (customer_code, customer_name, is_active, created_at, updated_at)
+             VALUES (?1, ?2, ?3, datetime('now'), datetime('now'))",
+            params![code, name, if active { 1 } else { 0 }],
+        )
+        .unwrap();
+        c.last_insert_rowid()
+    }
+
+    #[test]
+    fn customer_code_is_unique_in_the_shipped_schema() {
+        let db = TempDb::new("unique");
+        let c = db.open();
+
+        add_customer(&c, "CUST-001", "Contoso Medical", true);
+        let dup = c.execute(
+            "INSERT INTO customers (customer_code, customer_name, is_active, created_at, updated_at)
+             VALUES ('CUST-001', 'A Different Company', 1, datetime('now'), datetime('now'))",
+            [],
+        );
+        assert!(dup.is_err(), "duplicate customer codes must be refused by the database");
+        assert_eq!(count(&c, "SELECT COUNT(*) FROM customers"), 1);
+    }
+
+    #[test]
+    fn only_active_customers_are_offered_but_history_still_resolves() {
+        let db = TempDb::new("cust_active");
+        let c = db.open();
+
+        let live = add_customer(&c, "CUST-001", "Contoso Medical", true);
+        let gone = add_customer(&c, "CUST-002", "Former Client", false);
+
+        c.execute(
+            "INSERT INTO complaints
+                 (complaint_number, customer_name, customer_id, title, received_date, status,
+                  created_at, updated_at, customer_ref_id)
+             VALUES ('C-1', 'Former Client', 'CUST-002', 'Old issue', '2026-01-01', 'OPEN',
+                     datetime('now'), datetime('now'), ?1)",
+            params![gone],
+        )
+        .unwrap();
+
+        // The picker query from list_customer_options.
+        let offered = names(
+            &c,
+            "SELECT customer_name FROM customers WHERE is_active = 1 ORDER BY customer_name ASC",
+        );
+        assert_eq!(offered, vec!["Contoso Medical".to_string()]);
+        assert!(live > 0);
+
+        // The historical complaint still resolves to its customer, inactive or not.
+        let (name, code, active): (String, String, i64) = c
+            .query_row(
+                "SELECT cu.customer_name, cu.customer_code, cu.is_active
+                   FROM complaints c JOIN customers cu ON cu.id = c.customer_ref_id
+                  WHERE c.complaint_number = 'C-1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(name, "Former Client");
+        assert_eq!(code, "CUST-002");
+        assert_eq!(active, 0, "and is still identifiable as inactive");
+    }
+
+    #[test]
+    fn editing_a_customer_does_not_rewrite_complaint_snapshots() {
+        let db = TempDb::new("cust_rename");
+        let c = db.open();
+
+        let id = add_customer(&c, "CUST-001", "Contoso Medical", true);
+        c.execute(
+            "INSERT INTO complaints
+                 (complaint_number, customer_name, customer_id, title, received_date, status,
+                  created_at, updated_at, customer_ref_id)
+             VALUES ('C-1', 'Contoso Medical', 'CUST-001', 'Late delivery', '2026-01-01', 'OPEN',
+                     datetime('now'), datetime('now'), ?1)",
+            params![id],
+        )
+        .unwrap();
+
+        // What update_customer does: the master row only.
+        c.execute(
+            "UPDATE customers SET customer_code = 'CON-01', customer_name = 'Contoso Medical GmbH'
+              WHERE id = ?1",
+            params![id],
+        )
+        .unwrap();
+
+        let (name, code, still_linked): (String, String, i64) = c
+            .query_row(
+                "SELECT customer_name, customer_id, customer_ref_id FROM complaints WHERE complaint_number = 'C-1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(name, "Contoso Medical", "the complaint says what it said when raised");
+        assert_eq!(code, "CUST-001");
+        assert_eq!(still_linked, id, "while still pointing at the same master record");
+    }
+
+    #[test]
+    fn a_referenced_customer_cannot_be_destructively_deleted() {
+        let db = TempDb::new("cust_nodelete");
+        let c = db.open();
+
+        let id = add_customer(&c, "CUST-001", "Contoso Medical", true);
+        c.execute(
+            "INSERT INTO complaints
+                 (complaint_number, customer_name, customer_id, title, received_date, status,
+                  created_at, updated_at, customer_ref_id)
+             VALUES ('C-1', 'Contoso Medical', 'CUST-001', 'Issue', '2026-01-01', 'OPEN',
+                     datetime('now'), datetime('now'), ?1)",
+            params![id],
+        )
+        .unwrap();
+
+        assert!(
+            c.execute("DELETE FROM customers WHERE id = ?1", params![id]).is_err(),
+            "the FK from complaints.customer_ref_id must refuse to orphan a referenced customer",
+        );
+    }
+
+    // ── Migration 012: conservative backfill ─────────────────────────────────
+
+    /// The backfill runs during initialize_database, so it has to be re-run by
+    /// hand here against data inserted afterwards. This is the same statement
+    /// migration 012 contains.
+    fn run_backfill(c: &Connection) {
+        c.execute_batch(
+            "UPDATE complaints
+                SET customer_ref_id = (
+                     SELECT cu.id FROM customers cu
+                      WHERE lower(trim(cu.customer_code)) = lower(trim(complaints.customer_id))
+                    )
+              WHERE customer_ref_id IS NULL
+                AND trim(customer_id) <> ''
+                AND EXISTS (
+                     SELECT 1 FROM customers cu
+                      WHERE lower(trim(cu.customer_code)) = lower(trim(complaints.customer_id))
+                    );",
+        )
+        .unwrap();
+    }
+
+    fn legacy_complaint(c: &Connection, number: &str, name: &str, code: &str) {
+        c.execute(
+            "INSERT INTO complaints
+                 (complaint_number, customer_name, customer_id, title, received_date, status,
+                  created_at, updated_at)
+             VALUES (?1, ?2, ?3, 'Legacy issue', '2025-06-01', 'OPEN',
+                     datetime('now'), datetime('now'))",
+            params![number, name, code],
+        )
+        .unwrap();
+    }
+
+    fn ref_of(c: &Connection, number: &str) -> Option<i64> {
+        c.query_row(
+            "SELECT customer_ref_id FROM complaints WHERE complaint_number = ?1",
+            params![number],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn backfill_links_only_an_exact_code_match() {
+        let db = TempDb::new("backfill");
+        let c = db.open();
+
+        let contoso = add_customer(&c, "CUST-001", "Contoso Medical", true);
+
+        legacy_complaint(&c, "C-1", "Contoso Medical", "CUST-001"); // exact code
+        legacy_complaint(&c, "C-2", "Contoso Medical", " cust-001 "); // case + whitespace
+        legacy_complaint(&c, "C-3", "Contoso Medical", "CUST-999"); // name matches, code does not
+        legacy_complaint(&c, "C-4", "Contoso", ""); // no code at all
+
+        run_backfill(&c);
+
+        assert_eq!(ref_of(&c, "C-1"), Some(contoso));
+        assert_eq!(ref_of(&c, "C-2"), Some(contoso), "trimmed and case-insensitive");
+        assert_eq!(
+            ref_of(&c, "C-3"),
+            None,
+            "a matching NAME is not evidence of identity — only the code is",
+        );
+        assert_eq!(ref_of(&c, "C-4"), None, "an empty code links to nothing");
+    }
+
+    #[test]
+    fn backfill_never_alters_the_complaint_text() {
+        let db = TempDb::new("backfill_text");
+        let c = db.open();
+
+        add_customer(&c, "CUST-001", "Contoso Medical GmbH", true); // master already renamed
+        legacy_complaint(&c, "C-1", "Contoso Medical", "CUST-001"); // complaint says the old name
+
+        run_backfill(&c);
+
+        let (name, code): (String, String) = c
+            .query_row(
+                "SELECT customer_name, customer_id FROM complaints WHERE complaint_number = 'C-1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(name, "Contoso Medical", "linking must not adopt the master's newer name");
+        assert_eq!(code, "CUST-001");
+    }
+
+    #[test]
+    fn an_unlinked_legacy_complaint_remains_fully_readable() {
+        let db = TempDb::new("legacy_readable");
+        let c = db.open();
+
+        legacy_complaint(&c, "C-1", "Someone Not In The Master", "OLD-42");
+        run_backfill(&c);
+
+        assert_eq!(ref_of(&c, "C-1"), None);
+        let (name, code): (String, String) = c
+            .query_row(
+                "SELECT customer_name, customer_id FROM complaints WHERE complaint_number = 'C-1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(name, "Someone Not In The Master");
+        assert_eq!(code, "OLD-42", "nothing has to be deleted or re-entered");
+    }
+
+    /// The complaint list query must survive an unlinked row — a LEFT JOIN, not
+    /// an inner one, or legacy complaints would vanish from the register.
+    #[test]
+    fn the_complaint_list_join_keeps_unlinked_rows() {
+        let db = TempDb::new("join");
+        let c = db.open();
+
+        let id = add_customer(&c, "CUST-001", "Contoso Medical", true);
+        legacy_complaint(&c, "C-1", "Someone Else", "OLD-42");
+        c.execute(
+            "INSERT INTO complaints
+                 (complaint_number, customer_name, customer_id, title, received_date, status,
+                  created_at, updated_at, customer_ref_id)
+             VALUES ('C-2', 'Contoso Medical', 'CUST-001', 'Linked', '2026-01-01', 'OPEN',
+                     datetime('now'), datetime('now'), ?1)",
+            params![id],
+        )
+        .unwrap();
+
+        let n = count(
+            &c,
+            "SELECT COUNT(*) FROM complaints c LEFT JOIN customers cm ON c.customer_ref_id = cm.id",
+        );
+        assert_eq!(n, 2, "both the linked and the unlinked complaint must be listed");
+    }
+
+    // ── Lookup authorization ─────────────────────────────────────────────────
+
+    /// Raising a record must not require administering the lookup tables.
+    ///
+    /// These assert the actual key sets the two lookup commands pass to
+    /// require_any_permission, so narrowing a guard back to masterdata-only fails
+    /// here rather than in a user's hands.
+    #[test]
+    fn business_capability_alone_authorizes_a_lookup() {
+        use super::{CUSTOMER_LOOKUP_PERMISSIONS, RISK_SOURCE_LOOKUP_PERMISSIONS};
+
+        let allows = |set: &[&str], held: &str| set.contains(&held);
+
+        for held in ["complaints.create", "complaints.edit", "complaints.view"] {
+            assert!(
+                allows(&CUSTOMER_LOOKUP_PERMISSIONS, held),
+                "{} must be able to pick a customer without master-data rights",
+                held,
+            );
+        }
+        for held in ["risks.create", "risks.edit", "risks.view"] {
+            assert!(
+                allows(&RISK_SOURCE_LOOKUP_PERMISSIONS, held),
+                "{} must be able to pick a risk source without master-data rights",
+                held,
+            );
+        }
+
+        // Master-data rights still work, and unrelated permissions still do not.
+        assert!(allows(&CUSTOMER_LOOKUP_PERMISSIONS, "masterdata.view"));
+        assert!(allows(&RISK_SOURCE_LOOKUP_PERMISSIONS, "masterdata.manage"));
+        for unrelated in ["capa.view", "audits.view", "backup.create", "users.manage"] {
+            assert!(!allows(&CUSTOMER_LOOKUP_PERMISSIONS, unrelated));
+            assert!(!allows(&RISK_SOURCE_LOOKUP_PERMISSIONS, unrelated));
+        }
+
+        // Neither lookup grants administration — that stays behind manage.
+        assert!(
+            !CUSTOMER_LOOKUP_PERMISSIONS.contains(&"masterdata.manage")
+                || CUSTOMER_LOOKUP_PERMISSIONS.contains(&"masterdata.view"),
+            "manage is accepted only as a superset of view, never as the sole route",
+        );
+    }
+
+    /// Every WRITE stays on masterdata.manage. Resolved through the real RBAC
+    /// engine over the shipped role templates, not by restating the rule.
+    #[test]
+    fn only_masterdata_manage_holders_may_write() {
+        let db = TempDb::new("rbac");
+        let c = db.open();
+
+        let user_with = |role_key: &str, username: &str| -> i64 {
+            let role_id: i64 = c
+                .query_row(
+                    "SELECT id FROM roles WHERE role_key = ?1",
+                    params![role_key],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            c.execute(
+                "INSERT INTO users (username, full_name, email, role, role_id, department,
+                                    password_hash, is_active, created_at, updated_at)
+                 VALUES (?1, ?1, NULL, ?2, ?3, '', 'x', 1, datetime('now'), datetime('now'))",
+                params![username, role_key, role_id],
+            )
+            .unwrap();
+            c.last_insert_rowid()
+        };
+
+        let admin = user_with("Admin", "md_admin");
+        let viewer = user_with("Viewer", "md_viewer");
+        let employee = user_with("Employee", "md_employee");
+
+        let eff = |uid: i64| crate::permissions::effective_permissions(&c, uid).unwrap();
+
+        assert!(eff(admin).contains("masterdata.manage"), "Admin administers master data");
+
+        for (uid, who) in [(viewer, "Viewer"), (employee, "Employee")] {
+            let set = eff(uid);
+            assert!(
+                !set.contains("masterdata.manage"),
+                "{} must not be able to write master data",
+                who,
+            );
+            // …but may still read the lookups, which is the whole point of the split.
+            assert!(
+                set.contains("masterdata.view"),
+                "{} keeps read access to lookup values",
+                who,
+            );
+        }
     }
 }
