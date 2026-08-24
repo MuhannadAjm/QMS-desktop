@@ -729,25 +729,48 @@ pub fn print_document_file(current_user_id: i64, document_id: i64) -> Result<(),
     let conn = db::open_conn()?;
     let (real, original) = resolve_document_attachment(&conn, document_id)?;
 
-    let status = std::process::Command::new("powershell")
+    // The path travels in the ENVIRONMENT, not in the command text.
+    //
+    // The first version appended it as a trailing argument and referenced
+    // $args[0] from -Command. PowerShell does not bind $args that way: the path
+    // arrived as a stray positional token, $args[0] was null, Start-Process
+    // failed on a null -FilePath, and every print reported "check that a printer
+    // is installed". Printing never worked.
+    //
+    // Interpolating the path into the command string would fix the binding and
+    // introduce an injection instead — a filename is data, and PowerShell would
+    // parse it. An environment variable is read by the script without ever
+    // passing through the parser, so neither problem exists.
+    let output = std::process::Command::new("powershell")
         .args([
             "-NoProfile",
             "-NonInteractive",
             "-WindowStyle",
             "Hidden",
             "-Command",
-            "Start-Process -FilePath $args[0] -Verb Print",
+            "Start-Process -FilePath $env:QMS_PRINT_TARGET -Verb Print",
         ])
-        .arg(real.as_os_str())
-        .status()
+        .env("QMS_PRINT_TARGET", real.as_os_str())
+        .output()
         .map_err(|e| format!("Could not reach the Windows print service: {}", e))?;
+    let status = output.status;
 
     if !status.success() {
-        return Err(
+        // Surface what Windows actually said. The previous blanket message sent
+        // every failure — including a bug in this command — to "check that a
+        // printer is installed", which is where the broken binding hid.
+        let detail = String::from_utf8_lossy(&output.stderr);
+        let detail = detail.trim();
+        return Err(if detail.is_empty() {
             "Windows could not print this file. Check that a printer is installed and that the \
              file type has a print action associated with it."
-                .to_string(),
-        );
+                .to_string()
+        } else {
+            format!(
+                "Windows could not print this file: {}",
+                detail.lines().next().unwrap_or(detail)
+            )
+        });
     }
 
     log_document_activity(
@@ -1329,20 +1352,16 @@ mod document_control_tests {
 
     /// WHO CAN APPROVE, AS SHIPPED.
     ///
-    /// Stage 4 was specified as "approval is an Admin function". Admin does hold
-    /// documents.approve — but so does Quality Manager, and that predates this
-    /// stage: migration 010 grants QualityManager every permission except
-    /// users.manage, roles.manage, backup.create and backup.restore, which sweeps
-    /// documents.approve in with the rest.
+    /// Approving a controlled document is the act that makes it effective, and
+    /// the owner specifies it as an Admin function. Migration 010 built the
+    /// Quality Manager template by subtraction — everything except four keys —
+    /// so documents.approve landed there by the shape of an older rule rather
+    /// than by decision. Migration 013 corrects the default.
     ///
-    /// That is left EXACTLY as it is. Removing it would narrow a shipped role
-    /// template, change the 47-key count the Stage 2 tripwire asserts, and quietly
-    /// revoke a capability from every existing Quality Manager — a privilege
-    /// decision for the owner, not a side effect of building the approval screen.
-    /// This test pins the real state so the question stays visible rather than
-    /// being discovered later in the field.
+    /// The key still exists and is still grantable to any role through Roles &
+    /// Permissions; only the shipped default changed.
     #[test]
-    fn document_approval_is_held_by_admin_and_quality_manager_as_shipped() {
+    fn document_approval_is_admin_only_by_default() {
         let db = TempDb::new("rbac");
         let c = db.open();
 
@@ -1355,13 +1374,13 @@ mod document_control_tests {
         let eff = |uid: i64| crate::permissions::effective_permissions(&c, uid).unwrap();
 
         assert!(eff(admin).contains("documents.approve"), "Admin approves documents");
-        assert!(
-            eff(qm).contains("documents.approve"),
-            "QualityManager holds it too, as shipped — see the note above before changing this",
-        );
-        // The read-only and audit roles must not, and that IS the line the owner
-        // cared about: approval is not something an auditor or an employee does.
-        for (uid, who) in [(auditor, "Auditor"), (employee, "Employee"), (viewer, "Viewer")] {
+        // No built-in role other than Admin approves documents by default.
+        for (uid, who) in [
+            (qm, "QualityManager"),
+            (auditor, "Auditor"),
+            (employee, "Employee"),
+            (viewer, "Viewer"),
+        ] {
             assert!(
                 !eff(uid).contains("documents.approve"),
                 "{} must not approve documents",
@@ -1381,12 +1400,62 @@ mod document_control_tests {
             assert!(a.contains(key), "Admin should hold {}", key);
         }
 
+        // The correction is narrow: a Quality Manager keeps everything else,
+        // including the document work that is genuinely theirs.
+        let q = eff(qm);
+        for kept in [
+            "documents.view",
+            "documents.create",
+            "documents.edit",
+            "documents.attachment_manage",
+            "documents.print",
+        ] {
+            assert!(q.contains(kept), "QualityManager should still hold {}", kept);
+        }
+
         // Viewing is not the same as taking the file out of the application.
         let v = eff(viewer);
         assert!(v.contains("documents.view"), "a viewer may read documents");
         assert!(
             !v.contains("documents.attachment_manage"),
             "a viewer must not manage document files",
+        );
+    }
+
+    /// An administrator who deliberately granted approval to one Quality Manager
+    /// made a decision about that person. Correcting a role DEFAULT has no
+    /// business overruling it, so the override survives migration 013.
+    #[test]
+    fn an_explicit_user_grant_survives_the_template_correction() {
+        let db = TempDb::new("override");
+        let c = db.open();
+
+        let plain_qm = make_user(&c, "qm_plain", "QualityManager");
+        let trusted_qm = make_user(&c, "qm_trusted", "QualityManager");
+
+        let perm_id: i64 = c
+            .query_row(
+                "SELECT id FROM permissions WHERE perm_key = 'documents.approve'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        c.execute(
+            "INSERT INTO user_permission_overrides (user_id, permission_id, effect, created_at, updated_at)
+             VALUES (?1, ?2, 'ALLOW', datetime('now'), datetime('now'))",
+            params![trusted_qm, perm_id],
+        )
+        .unwrap();
+
+        let eff = |uid: i64| crate::permissions::effective_permissions(&c, uid).unwrap();
+
+        assert!(
+            !eff(plain_qm).contains("documents.approve"),
+            "a Quality Manager with no explicit decision loses approval",
+        );
+        assert!(
+            eff(trusted_qm).contains("documents.approve"),
+            "an explicit per-user grant must survive the template correction",
         );
     }
 

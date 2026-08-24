@@ -14,19 +14,20 @@ import {
   TriangleAlert,
   Trash2,
 } from 'lucide-react';
-import { open } from '@tauri-apps/plugin-dialog';
 import Card from '../components/ui/Card';
 import { useAuthStore } from '../stores/authStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import {
   getBackupStatus,
   createLocalBackup,
+  createBackupToFolder,
+  pickAndInspectBackup,
+  restorePendingBackup,
+  restoreManagedBackup,
   openBackupsFolder,
-  restoreLocalBackup,
-  validateImportBackup,
   deleteBackup,
 } from '../services/backupService';
-import type { BackupStatus, BackupEntry } from '../types/backup';
+import type { BackupStatus, BackupEntry, BackupCandidate } from '../types/backup';
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -43,18 +44,19 @@ function fmtSize(bytes: number): string {
 
 interface RestoreModalProps {
   entry: BackupEntry | null;
-  importPath: string | null;
+  /** A folder the operator picked, already validated by the backend. */
+  candidate: BackupCandidate | null;
   onCancel: () => void;
   onConfirm: (preserveLicense: boolean) => void;
   isRestoring: boolean;
   message: { type: 'success' | 'error'; text: string } | null;
 }
 
-function RestoreModal({ entry, importPath, onCancel, onConfirm, isRestoring, message }: RestoreModalProps) {
+function RestoreModal({ entry, candidate, onCancel, onConfirm, isRestoring, message }: RestoreModalProps) {
   const [confirmText, setConfirmText] = useState('');
   const [preserveLicense, setPreserveLicense] = useState(true);
-  const isImport = !!importPath;
-  const displayName = entry?.name ?? (importPath ? importPath.split(/[\\/]/).pop() : '');
+  const isImport = !!candidate;
+  const displayName = entry?.name ?? candidate?.folder_name ?? '';
   const canConfirm = confirmText === 'RESTORE' && !isRestoring;
 
   return (
@@ -86,6 +88,27 @@ function RestoreModal({ entry, importPath, onCancel, onConfirm, isRestoring, mes
             <li>Only an Administrator should perform a restore.</li>
           </ul>
         </div>
+
+        {candidate && (
+          <div className="border border-[#E2E8F0] rounded-lg p-3 mb-4">
+            <p className="text-xs font-semibold text-[#1A202C] mb-2">
+              This backup was checked and contains:
+            </p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[#475569]">
+              <span>Users</span><span className="tabular-nums">{candidate.user_count}</span>
+              <span>Documents</span><span className="tabular-nums">{candidate.document_count}</span>
+              <span>CAPAs</span><span className="tabular-nums">{candidate.capa_count}</span>
+              <span>Risks</span><span className="tabular-nums">{candidate.risk_count}</span>
+              <span>Complaints</span><span className="tabular-nums">{candidate.complaint_count}</span>
+              <span>Schema version</span><span className="tabular-nums">{candidate.schema_version}</span>
+              <span>Database size</span><span className="tabular-nums">{fmtSize(candidate.database_size_bytes)}</span>
+              <span>Attachments</span><span>{candidate.has_uploads ? 'included' : 'none'}</span>
+            </div>
+            <p className="text-[11px] text-[#64748B] mt-2">
+              Compare these against what you expect. Anything not in this backup is replaced by it.
+            </p>
+          </div>
+        )}
 
         {/* Safety backup info */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-start gap-2">
@@ -266,7 +289,7 @@ export default function Backup() {
   // Restore from backup list
   const [restoreTarget, setRestoreTarget] = useState<BackupEntry | null>(null);
   // Restore from import (external folder)
-  const [importPath, setImportPath] = useState<string | null>(null);
+  const [candidate, setCandidate] = useState<BackupCandidate | null>(null);
   const [importValidating, setImportValidating] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
 
@@ -280,7 +303,7 @@ export default function Backup() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const showModal = restoreTarget !== null || importPath !== null;
+  const showModal = restoreTarget !== null || candidate !== null;
 
   const loadStatus = async () => {
     setLoadingStatus(true);
@@ -301,8 +324,8 @@ export default function Backup() {
     setCreating(true);
     setCreateMessage(null);
     try {
-      await createLocalBackup(currentUserId);
-      setCreateMessage({ type: 'success', text: 'Backup created successfully.' });
+      const name = await createLocalBackup(currentUserId);
+      setCreateMessage({ type: 'success', text: `Backup created: ${name}` });
       await loadStatus();
     } catch (e) {
       setCreateMessage({ type: 'error', text: String(e) });
@@ -321,21 +344,23 @@ export default function Backup() {
 
   const handleRestoreClick = (entry: BackupEntry) => {
     setRestoreTarget(entry);
-    setImportPath(null);
+    setCandidate(null);
     setRestoreMessage(null);
   };
 
+  // The backend opens the picker and validates the folder before anything is
+  // shown, so an unusable backup is refused before the operator is asked to
+  // confirm replacing their data.
   const handleImportClick = async () => {
     setImportError(null);
     setImportValidating(true);
     try {
-      const selected = await open({ directory: true, multiple: false, title: 'Select QMS Backup Folder' });
-      if (!selected) { setImportValidating(false); return; }
-      const folderPath = Array.isArray(selected) ? selected[0] : selected;
-      const canonical = await validateImportBackup(currentUserId, folderPath);
-      setImportPath(canonical);
-      setRestoreTarget(null);
-      setRestoreMessage(null);
+      const found = await pickAndInspectBackup(currentUserId);
+      if (found) {
+        setCandidate(found);
+        setRestoreTarget(null);
+        setRestoreMessage(null);
+      }
     } catch (e) {
       setImportError(String(e));
     } finally {
@@ -343,13 +368,29 @@ export default function Backup() {
     }
   };
 
+  const handleBackupElsewhere = async () => {
+    setCreating(true);
+    setCreateMessage(null);
+    try {
+      const where = await createBackupToFolder(currentUserId);
+      if (where) setCreateMessage({ type: 'success', text: `Backup created at ${where}` });
+    } catch (e) {
+      setCreateMessage({ type: 'error', text: String(e) });
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const handleModalConfirm = async (preserveLicense: boolean) => {
-    const path = restoreTarget?.full_path ?? importPath;
-    if (!path) return;
+    if (!restoreTarget && !candidate) return;
     setRestoring(true);
     setRestoreMessage(null);
     try {
-      const msg = await restoreLocalBackup(currentUserId, path, preserveLicense);
+      // A listed backup is named; an external one is whatever the backend
+      // already inspected. Neither is addressed by path from here.
+      const msg = restoreTarget
+        ? await restoreManagedBackup(currentUserId, restoreTarget.name, preserveLicense)
+        : await restorePendingBackup(currentUserId, preserveLicense);
       setRestoreMessage({ type: 'success', text: msg });
       setRestoreSuccessful(true);
       await loadStatus();
@@ -363,7 +404,7 @@ export default function Backup() {
   const handleModalCancel = () => {
     if (restoring) return;
     setRestoreTarget(null);
-    setImportPath(null);
+    setCandidate(null);
     setRestoreMessage(null);
   };
 
@@ -377,7 +418,8 @@ export default function Backup() {
     setDeleting(true);
     setDeleteError(null);
     try {
-      await deleteBackup(currentUserId, deleteTarget.full_path);
+      // By name, not path: the backend resolves it inside the backups folder.
+      await deleteBackup(currentUserId, deleteTarget.name);
       setDeleteTarget(null);
       await loadStatus();
     } catch (e) {
@@ -496,6 +538,20 @@ export default function Backup() {
                 >
                   <Plus size={14} />
                   {creating ? 'Creating backup…' : 'Create Backup'}
+                </button>
+                )}
+
+                {/* Same operation, somewhere the operator chooses — a USB drive
+                    or a network share. The backend presents the folder picker;
+                    this button does not know or supply a location. */}
+                {canCreate && (
+                <button
+                  onClick={handleBackupElsewhere}
+                  disabled={creating}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-[#1E3A5F] border border-[#E2E8F0] rounded-md hover:bg-[#F4F6F9] transition-colors disabled:opacity-50"
+                >
+                  <FolderOpen size={14} />
+                  Back Up Elsewhere…
                 </button>
                 )}
 
@@ -643,7 +699,7 @@ export default function Backup() {
       {showModal && (
         <RestoreModal
           entry={restoreTarget}
-          importPath={importPath}
+          candidate={candidate}
           onCancel={handleModalCancel}
           onConfirm={handleModalConfirm}
           isRestoring={restoring}

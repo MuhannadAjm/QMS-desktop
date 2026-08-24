@@ -19,6 +19,7 @@ const MIGRATION_009: &str = include_str!("sql/009_risk_source_historical_integri
 const MIGRATION_010: &str = include_str!("sql/010_rbac.sql");
 const MIGRATION_011: &str = include_str!("sql/011_rbac_template_parity.sql");
 const MIGRATION_012: &str = include_str!("sql/012_complaint_customer_link.sql");
+const MIGRATION_013: &str = include_str!("sql/013_document_approval_admin_only.sql");
 
 fn migrations() -> Vec<Migration> {
     vec![
@@ -34,7 +35,17 @@ fn migrations() -> Vec<Migration> {
         Migration { version: "010", description: "rbac",                    sql: MIGRATION_010 },
         Migration { version: "011", description: "rbac_template_parity",    sql: MIGRATION_011 },
         Migration { version: "012", description: "complaint_customer_link", sql: MIGRATION_012 },
+        Migration { version: "013", description: "doc_approval_admin_only",  sql: MIGRATION_013 },
     ]
+}
+
+/// The highest migration version this build knows how to run.
+///
+/// Used to refuse a restore from a NEWER installation: a database carrying
+/// columns and tables this build has never seen would appear to restore
+/// cleanly and then quietly lose whatever it could not represent.
+pub fn latest_migration_version() -> &'static str {
+    migrations().last().map(|m| m.version).unwrap_or("000")
 }
 
 /// Open the database, enable WAL + foreign keys, create the migrations table,

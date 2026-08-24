@@ -47,9 +47,9 @@ pub use documents::{
     update_document,
 };
 pub use backup::{
-    create_local_backup, delete_backup, get_backup_status, open_backups_folder,
-    restore_local_backup, validate_backup_path, validate_import_backup,
-};
+    create_local_backup, create_backup_to_folder,
+    pick_and_inspect_backup, restore_pending_backup, restore_managed_backup, delete_backup, get_backup_status, open_backups_folder,
+    };
 pub use dashboard::{
     get_dashboard_high_risks, get_dashboard_open_ncs, get_dashboard_overdue_capas,
     get_dashboard_recent_activity, get_dashboard_summary,

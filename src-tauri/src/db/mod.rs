@@ -1,5 +1,5 @@
 mod init;
-pub use init::{get_applied_migrations, initialize_database};
+pub use init::{get_applied_migrations, initialize_database, latest_migration_version};
 
 /// Open a database connection to the QMSDesktop data.db with FK enforcement.
 pub fn open_conn() -> Result<rusqlite::Connection, String> {

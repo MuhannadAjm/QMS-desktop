@@ -500,8 +500,10 @@ pub fn attach_nc_file(
         .to_lowercase();
     validate_file_extension(&ext)?;
 
-    let source = std::path::Path::new(&source_file_path);
-    if !source.exists() { return Err("Source file does not exist".to_string()); }
+    // The operator picked this in a native dialog, so it legitimately comes
+    // from the renderer. It is only ever read and copied inward. Validated as a
+    // real regular file so a directory or dangling link cannot surprise the copy.
+    let source = storage::validate_import_source(&source_file_path)?;
 
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -566,13 +568,14 @@ pub fn open_nc_attachment(current_user_id: i64, attachment_id: i64) -> Result<()
             params![attachment_id], |row| row.get(0),
         )
         .map_err(|_| "Attachment not found".to_string())?;
+    // Resolve through the managed-storage guard rather than joining a database
+    // value onto a directory and trusting it. PathBuf::join silently REPLACES
+    // the base if the joined component is absolute, so this canonicalises both
+    // sides and refuses anything resolving outside managed storage.
     let paths = storage::get_storage_paths()?;
-    let full_path = paths.uploads_nc.join(&file_path);
-    if !full_path.exists() {
-        return Err("File not found on disk. It may have been moved or deleted.".to_string());
-    }
+    let real = storage::resolve_managed_file(&paths.uploads_nc, &file_path)?;
     std::process::Command::new("cmd")
-        .args(["/c", "start", "", &full_path.to_string_lossy()])
+        .arg("/c").arg("start").arg("").arg(real.as_os_str())
         .spawn()
         .map_err(|e| format!("Failed to open file: {}", e))?;
     Ok(())

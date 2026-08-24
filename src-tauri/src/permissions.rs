@@ -837,7 +837,11 @@ mod shipped_schema_tests {
 
         for (role_key, expected) in [
             ("Admin", 53),
-            ("QualityManager", 47),
+            // 46, not 47: migration 013 removes documents.approve from this
+            // template. Approving a controlled document is what makes it
+            // effective, and the owner specifies that as an Admin function. The
+            // key still exists and can be granted to any role deliberately.
+            ("QualityManager", 46),
             ("Auditor", 13),
             ("Employee", 11),
             ("Viewer", 11),
@@ -882,7 +886,11 @@ mod shipped_schema_tests {
 
         // Quality managers keep the full record-editing rights they had.
         assert!(qm.contains("capa.create") && qm.contains("capa.edit"));
-        assert!(qm.contains("documents.approve"));
+        assert!(qm.contains("documents.create") && qm.contains("documents.edit"));
+        // …but not approval. Migration 013 makes that an Admin function by
+        // default: approving is what makes a controlled document effective.
+        // The key is still grantable to any role through Roles & Permissions.
+        assert!(!qm.contains("documents.approve"));
 
         // Auditors could read everything and manage findings, but never create.
         assert!(auditor.contains("audits.finding_manage"));
