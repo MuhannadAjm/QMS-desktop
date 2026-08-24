@@ -171,8 +171,18 @@ a blank page and nothing logged.
 
 `print_document_file` requires `documents.print` and invokes the Windows shell's
 **print verb** on the backend-resolved file. The verb is fixed and the path is
-never caller-supplied; both are passed as separate arguments rather than
-interpolated into a command string. This is the OS print association, not a shell.
+never caller-supplied.
+
+The first version appended the path as a trailing argument to
+`powershell -Command` and referenced `$args[0]`. PowerShell does not bind `$args`
+that way — `$args.Count` is `0` — so `Start-Process` received a null `-FilePath`
+and **every print failed**, reporting "check that a printer is installed".
+Printing never worked until Stage 5.
+
+The path now travels in an environment variable (`$env:QMS_PRINT_TARGET`), which
+binds correctly and never passes through PowerShell's parser. Interpolating it
+into the command string would have fixed the binding and introduced an injection
+instead — a filename is data. See `docs/FILE_SECURITY.md` §4.
 
 ---
 
@@ -195,23 +205,17 @@ are not the same thing: viewing happens under the QMS's control, and opening
 externally is the point past which the QMS can no longer say what happened to the
 file.
 
-### Who can approve — a distinction worth stating
+### Who can approve
 
-Stage 4 was specified as "approval is an Admin function". Admin holds
-`documents.approve`. **So does Quality Manager**, and that predates this stage:
-migration 010 grants QualityManager every permission except `users.manage`,
-`roles.manage`, `backup.create` and `backup.restore`, which sweeps
-`documents.approve` in with the rest.
+**Admin only, by default.** Migration 013 removed `documents.approve` from the
+Quality Manager template, where it had landed because migration 010 built that
+template by subtraction — everything except four keys — before the approval
+workflow existed.
 
-This has been left exactly as shipped. Narrowing it would revoke a capability from
-every existing Quality Manager, change the 47-key count the Stage 2 tripwire
-asserts, and make a privilege decision that belongs to the owner rather than to
-the implementation of an approval screen. A test pins the real state so the
-question stays visible. Auditor, Employee and Viewer hold no approval right.
-
-Custom roles can also be granted `documents.approve` through the Roles &
-Permissions editor — that is inherent to the RBAC architecture accepted in
-Stage 2, not something introduced here.
+The permission key is unchanged and still grantable to any role through Roles &
+Permissions, and per-user overrides were deliberately left alone: a Quality
+Manager an administrator explicitly trusted keeps approval. See
+`docs/FILE_SECURITY.md` and the Stage 5 entry in the development log.
 
 ---
 

@@ -4,6 +4,71 @@ Chronological record of phases completed.
 
 ---
 
+## Stage 5 — Security Hardening & Full Product Regression
+**Date:** 2026-08-24 | **Branch:** `main` | **Tag:** `improvement-checkpoint-security-regression`
+
+### Backup / restore trust boundary
+- `create_local_backup` no longer takes `destination_path`. `create_backup_to_folder`
+  opens the folder picker in Rust and refuses a destination inside the app data folder.
+- `restore_local_backup` replaced by `restore_managed_backup(name)` and the pair
+  `pick_and_inspect_backup` → `restore_pending_backup`, where the backend holds the
+  chosen folder so what is restored is what was validated.
+- `delete_backup` takes a name. Safety backups are not deletable.
+- `validate_backup_path` / `validate_import_backup` removed: advisory, skippable, and
+  both used `canonicalize(..).unwrap_or_else(|_| raw)`.
+- Candidate validation: opens as SQLite, `integrity_check`, all eight core tables,
+  readable migration history, not newer than this build. Uses the `immutable=1` URI so
+  inspection leaves no `-wal` behind.
+- Replacement: validate → copy aside → stage beside the live file → verify the staged
+  copy → delete stale `-wal`/`-shm` → rename → re-verify.
+- Audit events are path-free: `BACKUP_CREATED`, `BACKUP_DELETED`, `RESTORE_STARTED`,
+  `RESTORE_SUCCEEDED`, `RESTORE_FAILED`, `RESTORE_REJECTED`.
+
+### Module file commands
+All five `open_*_attachment` now use `storage::resolve_managed_file`; all five
+`attach_*_file` use `storage::validate_import_source`. `PathBuf::join` replaces the
+base when the joined component is absolute, and nothing had enforced that it never
+would be.
+
+### Printing (defect shipped in Stage 4)
+`print_document_file` referenced `$args[0]` from `powershell -Command` with the path
+appended as a trailing argument. PowerShell does not bind `$args` that way — verified,
+`$args.Count` is 0 — so `Start-Process` got a null `-FilePath` and every print failed
+behind "check that a printer is installed". The path now travels in an environment
+variable. Failures surface what Windows actually said.
+
+### Document approval default (migration 013)
+`documents.approve` removed from the Quality Manager template only. Per-user overrides
+untouched, so an explicitly trusted QM keeps approval. Counts: Admin 53,
+QualityManager 46 (was 47), Auditor 13, Employee 11, Viewer 11. Stage 2 tripwire and
+Stage 4 approval test updated to match.
+
+### Also fixed
+Backup deletion, which this stage's own name-based `delete_backup` had broken in the
+UI while it still sent a full path. Found by the audit, verified fixed in the harness.
+
+### Validation
+- 114 lib tests, 0 warnings (15 new: restore safety, name resolution, containment,
+  override preservation).
+- Migrations against a copy of the live database at 007: 001→013 clean, business rows
+  unchanged, approval reduced to Admin, integrity ok, 0 FK violations.
+- IPC boundary per role: QM denied approve/reject by name while keeping document
+  edit/attach/print; Viewer denied every write, backup, approval, attachment, print
+  and external-open.
+- UI regression: 12/12 routes render; CAPA enum + free-text root cause; dynamic risk
+  source; complaint customer selector with read-only code; `ISO 9001`; lead auditor
+  candidates; document approve; backup create/restore-confirmation/delete; modal
+  scrolling intact everywhere.
+- `cargo check` 0 warnings · `tsc` + `vite build` clean · full Tauri release build
+  produces MSI and NSIS bundles.
+
+### Deferred, not complete
+Code signing; packaged signed GUI E2E; PDF pixel rendering in the packaged WebView
+(harness never fires rAF — environmental); encrypted external RSA backup; Supabase
+plan-gated password warning; second Supabase non-admin Auth user test.
+
+---
+
 ## Stage 4 — Secure Document Control, In-App Viewer & Approval Workflow
 **Date:** 2026-08-23 | **Branch:** `main` | **Tag:** `improvement-checkpoint-documents`
 
