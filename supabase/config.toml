@@ -37,5 +37,10 @@ verify_jwt = true
 [functions.admin-deactivate-device]
 verify_jwt = true
 
+# admin-revoke-license terminates a licence: status -> REVOKED and every device
+# activated against it -> DEACTIVATED. Same gating as the other admin functions —
+# the platform rejects anonymous callers before the body runs, and requireAdmin()
+# then requires a license_admin_profiles row.
 
-
+[functions.admin-revoke-license]
+verify_jwt = true

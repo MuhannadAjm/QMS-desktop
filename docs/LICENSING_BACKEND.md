@@ -76,7 +76,7 @@ Migration `20260820190000` asserts this entire posture and fails the next
 
 ## 4. Edge Functions
 
-Exactly five. No temporary or diagnostic function may be left deployed.
+Exactly six. No temporary or diagnostic function may be left deployed.
 
 | function | `verify_jwt` | why |
 |---|---|---|
@@ -85,6 +85,7 @@ Exactly five. No temporary or diagnostic function may be left deployed.
 | `admin-generate-license` | true | admin app sends a real user JWT |
 | `admin-list-licenses` | true | " |
 | `admin-deactivate-device` | true | " |
+| `admin-revoke-license` | true | " |
 
 Admin functions are protected twice: the platform rejects anonymous callers at the
 edge, and `requireAdmin()` additionally verifies the JWT and requires a
@@ -150,6 +151,32 @@ admin and a non-admin uid.
 Desktop-side validation, using the **actual** production Rust code: a genuine
 server-issued token validates to `Active` under the current key, and mutating a
 signed field flips it to `Invalid`. Covered by `cargo test --lib` (14 tests).
+
+Revocation (`admin-revoke-license`, added 2026-09-05): deployed with
+`verify_jwt = true` and denied for anonymous callers, a garbage bearer token, a
+well-formed but unsigned JWT, the publishable key the Admin app itself ships, and
+that key sent as `apikey`. It requires `license_admin_profiles.role = 'admin'`,
+not merely the existence of a profile row, because it cannot be undone from the
+application. End-to-end revocation through the Admin UI is owner-run — it needs a
+real administrator login, which is not available to automated verification.
+
+### Revocation is not enforced on an activated machine
+
+A revoked licence cannot activate, re-activate, or pass a server-side validation,
+and its activation seats are released. It does **not** disable an installation
+that is already activated.
+
+QMS Desktop 1.0.0 does not validate online on its own: startup calls
+`get_license_status`, which reads the local token, and `validate_license_online`
+is reachable only from a manual button on the License page. Even then, a 403 from
+the server makes the Rust command return `Err`, so `License.tsx`'s
+`setLicenseInvalid()` is never reached and `license.json` is left untouched.
+
+Closing this requires a **client** change — treat a non-2xx from
+`validate-license` as a licence-invalid transition, and validate on a schedule —
+and therefore a new QMS Desktop build and package. It is an open product decision,
+not a defect in the revocation capability. Until it is made, do not tell a customer
+that revoking a key has switched off their installation.
 
 ### Deferred — not proven, not failed
 

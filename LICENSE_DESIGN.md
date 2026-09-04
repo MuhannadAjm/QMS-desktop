@@ -175,7 +175,7 @@ The resulting compact JSON string is the exact byte sequence that is signed (ser
 
 ### Admin Portal
 
-`license-admin/` — standalone React/Vite/Tailwind web app. Connects to Supabase with anon key. All admin writes go through Edge Functions (service_role). Pages: Login, Customers, Licenses, LicenseDetail (with deactivate), GenerateLicense, Events.
+`license-admin/` — standalone React/Vite/Tailwind web app. Connects to Supabase with anon key. All admin writes go through Edge Functions (service_role). Pages: Login, Customers, Licenses, LicenseDetail (with deactivate-device and revoke-licence), GenerateLicense, Events.
 
 ---
 

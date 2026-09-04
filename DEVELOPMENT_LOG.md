@@ -5,6 +5,109 @@ work session. Entries are appended chronologically.
 
 ---
 
+## 2026-09-05 — License Revocation: admin-revoke-license
+
+**Session type:** Licensing backend + License Admin frontend. No QMS Desktop client
+change — `src/` and `src-tauri/` are untouched and the client package was not rebuilt.
+
+**Why:** the Admin app could issue licences but not end them. `REVOKED` existed in the
+schema and the badge rendered it, but nothing set it, so revoking meant editing a row in
+the Supabase dashboard.
+
+**Migration — `20260905010000_grant_license_revocation.sql`**
+
+`GRANT UPDATE ON TABLE public.license_keys TO service_role`, and nothing else.
+
+Migration 20260820170000 had granted `service_role` only `SELECT, INSERT` on
+`license_keys`, because until now no Edge Function ever changed a licence's state.
+PostgreSQL checks table privileges before RLS, so without this grant the revoke UPDATE
+would have been rejected at the privilege layer — the same failure class 20260820170000
+documents at length. `DELETE` is still granted to nobody, and `authenticated` is still
+SELECT-only, so the browser cannot write to the table even though it renders the button.
+
+**A blocking defect in that migration, caught before deployment.** Its assertion block
+originally checked for `privilege_type = 'DELETE'` across *every* grantee. Any GRANT or
+REVOKE materialises a table's `relacl`, and a materialised `relacl` always carries the
+owner's own `acldefault` entry — which includes DELETE. The assertion would therefore
+have matched `postgres` on all five tables and aborted the migration, rolling back the
+very GRANT the feature depends on. Every other `aclexplode` check in this repo is scoped
+by `rolname`; this one had dropped the filter. Now scoped to
+`('anon','authenticated','service_role')`, matching 20260820190000 check #6.
+
+**Edge Function — `supabase/functions/admin-revoke-license/index.ts`**
+
+Takes a licence uuid and an optional reason. Authorises with the shared `requireAdmin()`
+gate, then additionally requires `license_admin_profiles.role = 'admin'`: `requireAdmin`
+only proves a profile row exists and never reads the role, which is tolerable for the
+reversible operations it guards today but not for one that cannot be undone from the
+application. `_shared/auth.ts` is deliberately untouched, so the three already-deployed
+admin functions behave exactly as before.
+
+End state matches migration 20260820180000, the product's own precedent: licence →
+`REVOKED`, every ACTIVE activation → `DEACTIVATED` with reason, audit events written,
+nothing deleted.
+
+- **Order is revoke-then-sweep.** Deactivating first would free activation seats on a key
+  that is still ACTIVE, so a partial failure would leave the licence *easier* to activate
+  than before. Revoking first means every failure direction is the closed one.
+- **Event type is `ADMIN_REVOKED`, not `REVOKED`.** `validate-license` already writes a
+  `REVOKED` event on every rejected validation of any non-ACTIVE licence. Reusing it would
+  make the audit trail unable to distinguish an administrative act from a routine client
+  rejection.
+- **Idempotent.** The licence transition is a compare-and-set whose affected rows are read
+  back with `.select()`, so concurrent callers cannot both write an `ADMIN_REVOKED` event,
+  and `activations_deactivated` counts the rows this call actually changed rather than a
+  count from an earlier SELECT.
+- **CORS on denials.** `requireAdmin` builds its 401/403 without CORS headers, so a browser
+  blocks them and `fetch` rejects — the Admin app would report a bare "Failed to fetch" for
+  exactly the authorization failures it most needs to explain. This function re-emits the
+  gate's own status and body with CORS attached. Verified live: the new function returns
+  `Access-Control-Allow-Origin: *` on a denial where `admin-deactivate-device` returns none.
+
+**License Admin UI**
+
+- `LicenseDetail.tsx` — a Revoke card with a two-step confirmation that names the customer,
+  company, key last-4, plan and licence id, records a reason into the audit trail, and
+  refreshes on success. Errors render inline instead of `alert()`.
+- The confirmation states what revocation actually does, which is **less** than it first
+  claimed. QMS Desktop 1.0.0 never validates online on its own — `validateLicenseOnline` is
+  reachable only from a manual button on the License page — and when the server rejects a
+  revoked licence with 403 the Rust command returns `Err`, so `License.tsx:272`'s
+  `setLicenseInvalid()` is never reached and `license.json` is left intact. Revocation
+  blocks activation and re-activation and frees seats; it does **not** switch off an
+  installation that is already activated. See "Known gap" below.
+- The panel stays reachable while the licence is `REVOKED` but activations remain `ACTIVE`,
+  so the backend's "run it again to finish" advice is actually followable.
+- `Events.tsx` — the Details column read `e.details`, a column `license_events` does not
+  have, so it had always rendered "—". Now reads `event_message` with a `metadata` fallback,
+  which is what makes a recorded revocation reason visible at all. Added the
+  `ADMIN_REVOKED` colour.
+
+**Known gap — not fixed here, owner decision required**
+
+Revocation is not enforced on an already-activated machine. Closing it means a QMS Desktop
+change (treat a non-2xx from `validate-license` as a licence-invalid transition, and call
+`validate_license_online` on startup or a schedule), which means a new client build, a
+client version bump and a reissued `01-QMS-CLIENT` package. Explicitly out of scope for
+this change, which was not to alter the client package.
+
+**Verification**
+
+- `supabase db push` applied one migration; its assertion block emitted
+  `Revocation grant verified: ...`.
+- `supabase functions deploy admin-revoke-license` → v1 ACTIVE, `verify_jwt = true`.
+  Six functions deployed; the other five untouched at v4.
+- Authorization probes against the live endpoint, all denied: anonymous, garbage bearer,
+  well-formed unsigned JWT, the app's own shipped publishable key, and the publishable key
+  as `apikey` only.
+- `deno check` clean; `tsc && vite build` clean; `cargo test --lib` 114 passed.
+
+**Source code changed:** Yes (licensing backend + License Admin only)
+**Database changed:** Yes — one GRANT, no schema or data change
+**QMS Desktop client changed:** No
+
+---
+
 ## 2026-06-15 — Phase 9B: Online Activation Server, RSA License Tokens, Admin Portal
 
 **Session type:** Phase 9B full implementation. Server backend + Rust RSA verification + TypeScript UI + Admin Portal. No local SQLite changes.

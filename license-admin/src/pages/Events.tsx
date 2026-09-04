@@ -7,7 +7,11 @@ interface Event {
   created_at: string;
   license_id: string | null;
   activation_id: string | null;
-  details: Record<string, unknown> | null;
+  // license_events stores the human-readable line in `event_message` and the
+  // structured payload in `metadata`. There is no `details` column — reading one
+  // is why this table showed an empty Details cell for every event.
+  event_message: string | null;
+  metadata: Record<string, unknown> | null;
 }
 
 const EVENT_COLORS: Record<string, string> = {
@@ -20,7 +24,17 @@ const EVENT_COLORS: Record<string, string> = {
   EXPIRED:                'bg-yellow-100 text-yellow-700',
   ADMIN_GENERATED:        'bg-purple-100 text-purple-700',
   ADMIN_DEACTIVATED:      'bg-gray-100 text-gray-700',
+  ADMIN_REVOKED:          'bg-red-100 text-red-700',
 };
+
+// Prefer the human-readable message; fall back to the structured payload so an
+// event that carries only metadata is still legible. `{}` is the column default
+// and says nothing, so it reads as no detail rather than as an empty object.
+function detailText(e: Event): string {
+  if (e.event_message) return e.event_message;
+  if (e.metadata && Object.keys(e.metadata).length > 0) return JSON.stringify(e.metadata);
+  return '—';
+}
 
 export default function Events() {
   const [events, setEvents] = useState<Event[]>([]);
@@ -73,8 +87,11 @@ export default function Events() {
                   <td className="px-4 py-2.5 font-mono text-gray-500 text-[11px]">
                     {e.license_id?.slice(0, 8) ?? '—'}…
                   </td>
-                  <td className="px-4 py-2.5 text-gray-500 max-w-xs truncate">
-                    {e.details ? JSON.stringify(e.details) : '—'}
+                  <td
+                    className="px-4 py-2.5 text-gray-500 max-w-xs truncate"
+                    title={detailText(e)}
+                  >
+                    {detailText(e)}
                   </td>
                 </tr>
               ))}
