@@ -43,6 +43,10 @@
     "windows": {
       "wix": {
         "language": "en-US"
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
       }
     }
   }
