@@ -57,7 +57,7 @@ produces "permission denied" and the policy never runs.
 | table | `anon` | `authenticated` | `service_role` |
 |---|---|---|---|
 | `license_customers` | — | SELECT | SELECT, INSERT |
-| `license_keys` | — | SELECT | SELECT, INSERT |
+| `license_keys` | — | SELECT | SELECT, INSERT, UPDATE |
 | `license_activations` | — | SELECT | SELECT, INSERT, UPDATE |
 | `license_events` | — | SELECT | SELECT, INSERT |
 | `license_admin_profiles` | — | SELECT | SELECT |
@@ -65,7 +65,11 @@ produces "permission denied" and the policy never runs.
 `authenticated` needs SELECT on `license_admin_profiles` because every data-table
 policy evaluates `EXISTS (SELECT 1 FROM license_admin_profiles WHERE id = auth.uid())`
 **as the calling role**. The `own_profile` policy still limits each user to their
-own row. No Edge Function performs a DELETE, so DELETE is granted to nobody.
+own row. No Edge Function performs a DELETE, so DELETE is granted to nobody —
+which is also why the client treats a "not found" answer as infrastructure rather
+than as revocation (see §7). `UPDATE` on `license_keys` was added by migration
+`20260905010000` for `admin-revoke-license`, the first function to change a
+licence's lifecycle state.
 
 Two trigger functions exist and are **not** executable by `anon`/`authenticated`:
 `rls_auto_enable()` (backs the `ensure_rls` event trigger that auto-enables RLS on
@@ -160,23 +164,54 @@ not merely the existence of a profile row, because it cannot be undone from the
 application. End-to-end revocation through the Admin UI is owner-run — it needs a
 real administrator login, which is not available to automated verification.
 
-### Revocation is not enforced on an activated machine
+### When revocation reaches the customer's machine
 
-A revoked licence cannot activate, re-activate, or pass a server-side validation,
-and its activation seats are released. It does **not** disable an installation
-that is already activated.
+> **Revocation takes effect on the client at the next successful online licence
+> validation. A device that remains completely offline continues using its
+> previously issued valid signed token until it reconnects.**
 
-QMS Desktop 1.0.0 does not validate online on its own: startup calls
-`get_license_status`, which reads the local token, and `validate_license_online`
-is reachable only from a manual button on the License page. Even then, a 403 from
-the server makes the Rust command return `Err`, so `License.tsx`'s
-`setLicenseInvalid()` is never reached and `license.json` is left untouched.
+That sentence is the contract. Do not promise instantaneous revocation of a
+permanently offline machine — the product is deliberately offline-capable and a
+locally signed token is honoured without a network.
 
-Closing this requires a **client** change — treat a non-2xx from
-`validate-license` as a licence-invalid transition, and validate on a schedule —
-and therefore a new QMS Desktop build and package. It is an open product decision,
-not a defect in the revocation capability. Until it is made, do not tell a customer
-that revoking a key has switched off their installation.
+QMS Desktop performs a **best-effort** online validation on every launch, started
+after local validation succeeds and deliberately not awaited, so an offline or
+slow machine is never delayed. What comes back is classified in
+`src-tauri/src/license/online.rs`:
+
+| Server answer | Client behaviour |
+|---|---|
+| `200` + a parseable signed token | adopt the fresh token |
+| `403` in the function's `{"error":…}` shape | **authoritative denial** — quarantine and lock out |
+| `404` in either shape | keep the local licence |
+| `400`, `401`, `5xx`, gateway pages, unparseable bodies | keep the local licence |
+| offline, DNS, timeout, TLS, transport error | keep the local licence |
+
+**Only `403` is authoritative.** The endpoint's two 404s fold "no such row"
+together with "the query failed" (`if (actErr || !activation)`), so a privilege
+regression or a transient database fault produces one — exactly the class of
+incident migration `20260820170000` records, where every licensing query failed
+on missing table grants. Had 404 been treated as a denial then, every
+installation in the field would have quarantined itself. Nothing is lost by
+declining it: no licensing table grants `DELETE` to any role and `license_keys`
+is referenced `ON DELETE RESTRICT`, so a row cannot legitimately vanish, and
+ending a licence sets a status — which answers 403. Every 403, by contrast, is
+returned only after its row has been read successfully, so a database failure
+cannot manufacture one.
+
+A denial quarantines `license.json`: the original token is copied to
+`license.revoked.json` for support, and the file is replaced by a record naming
+the reason. The next startup reads that record and reports the licence state
+directly, so the lockout survives a restart. `AppRouter` gates on
+`bootstrapState === 'license-invalid'` before it checks authentication, and
+`setLicenseInvalid()` also clears the session, so neither a licensed view nor a
+signed-in session survives an authoritative denial. Re-activating writes a fresh
+token over the marker and restores access.
+
+A user with filesystem access can rename `license.revoked.json` back. That is
+deliberate tampering rather than silent continuation, and it is unavoidable for
+any offline-capable product — the alternative is online-only licensing, which is
+not what this product is.
 
 ### Deferred — not proven, not failed
 

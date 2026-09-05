@@ -352,6 +352,22 @@ export default function License() {
             <p className="text-center text-[13px] text-[#64748B] py-4">Loading…</p>
           ) : (
             <>
+              {/* Why the gate is closed. Without this the customer is shown a
+                  bare activation form and has no idea whether their licence was
+                  revoked, expired, released, or simply never installed — and the
+                  backend went to the trouble of telling us. NOT_ACTIVATED is the
+                  one case that needs no explanation: the form already says it. */}
+              {details && !details.is_valid && details.state !== 'NOT_ACTIVATED' && (
+                <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl px-4 py-3">
+                  <p className="text-[12.5px] font-bold text-[#B91C1C] mb-1">
+                    {details.state_label}
+                  </p>
+                  <p className="text-[12.5px] text-[#7F1D1D] leading-relaxed">
+                    {details.message}
+                  </p>
+                </div>
+              )}
+
               <Card>
                 <div className="space-y-3">
                   <input

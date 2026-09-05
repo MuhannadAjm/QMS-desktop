@@ -5,6 +5,101 @@ work session. Entries are appended chronologically.
 
 ---
 
+## 2026-09-05 — Client-side revocation enforcement
+
+**Session type:** QMS Desktop client (Rust + React). Licensing backend unchanged;
+`admin-revoke-license` semantics untouched.
+
+**Why:** revocation existed on the vendor side but never reached the customer's
+machine. Startup validated only the local RSA-signed token, `validate_license_online`
+was reachable solely from a manual button, and it mapped every non-2xx to `Err` — so
+the frontend's catch branch ran, `setLicenseInvalid()` was never reached, and a
+revoked licence kept working indefinitely.
+
+**The rule the whole change turns on**
+
+> A valid locally signed token permits offline use. An AUTHORITATIVE denial
+> invalidates it. A TECHNICAL failure never does.
+
+Getting that backwards is harmful in both directions: treat a denial as technical and
+a revoked licence runs forever; treat an outage as a denial and every paying customer
+is locked out the moment Supabase has a bad minute.
+
+**`src-tauri/src/license/online.rs` (new)** — `decide_online_outcome` is a pure
+function from the HTTP result to `AdoptToken` / `Quarantine` / `KeepLocal`. No socket,
+no filesystem, so every branch of the deployed contract is testable.
+
+- **Only `403` is authoritative, and only in the function's own `{"error":…}` shape.**
+  A body carrying `code` is the Supabase *platform* answering — a missing or renamed
+  function — and must never read as a revocation.
+- **`404` is not authoritative.** `validate-license` folds "no such row" together with
+  "the query failed" (`if (actErr || !activation)`), so a privilege regression or a
+  transient database fault produces one. That is the exact class of incident migration
+  `20260820170000` records, where every licensing query failed on missing table grants
+  — had 404 been authoritative then, every installation in the field would have
+  quarantined itself. Nothing is lost by declining it: no licensing table grants
+  `DELETE` to any role, so a row cannot legitimately vanish, and ending a licence sets
+  a status, which answers 403.
+- Offline, DNS, timeout, TLS, 5xx, gateway pages, unparseable bodies: all `KeepLocal`.
+
+**The grace-period trap, caught in review before shipping.** `validate-license`
+refuses the instant `expires_at` passes — yet the same handler signs
+`grace_until = expires_at + 14 days` into the token, and `validate_token` honours it.
+The first implementation quarantined on that 403, which would have given an *online*
+machine zero grace where an *offline* one gets a fortnight, hard-locking every dated
+licence on the first launch after expiry — during exactly the renewal window grace
+exists to cover, and with re-activation refused too. `LocalGrace` now declines that one
+denial while the vendor's own signed window is still open. Grace softens expiry only;
+it never softens a revocation.
+
+**Verify before persisting.** The first implementation wrote the server's token and
+validated it afterwards. `write_license_token` is a plain overwrite with no backup, so
+a token that merely *deserialised* would have destroyed the customer's only working
+licence — unattended, on every launch. `may_adopt` now gates the write on the embedded
+key check.
+
+**Quarantine (`license/storage.rs`).** On denial the original token is copied to
+`license.revoked.json` and `license.json` is replaced by a record naming the reason, so
+the lockout survives a restart and the customer is told *which* refusal applied rather
+than "not activated". Detection tests a parsed top-level flag, not a substring — a raw
+scan would lock out any legitimate token whose text happened to contain the marker, and
+re-activation would write the same text back, making it permanent.
+
+**A restore no longer un-revokes a machine.** Backups contain `license.json`, and
+restore copied it back — so an ordinary one-click "restore my records" would have
+silently returned a revoked machine to working order. `perform_restore` now skips the
+licence when the installation is quarantined, and says so.
+
+**Frontend.** `App.tsx` fires a best-effort validation after local validation succeeds,
+deliberately un-awaited so an offline machine is never delayed. `license-invalid` is
+now terminal for the session: `setLicenseInvalid` clears the session, `login()` refuses
+to reopen the app, and the startup chain re-reads the state before calling
+`setBootstrapResult` — the online check is not awaited, so a denial can land during the
+database round-trip that follows. The licence gate now shows the reason instead of a
+bare activation form.
+
+**Offline contract, as documented:** revocation takes effect at the next successful
+online validation. A permanently offline machine keeps working from its signed token
+until it reconnects. This is not claimed to be an instant remote kill switch.
+
+**Verification**
+
+- `cargo check` clean; `cargo test --lib` **157 passed** (was 114).
+- Live probes of the deployed `validate-license`, read-only, using the project's own
+  disposable record retired by `20260820180000`: a real `403 {"error":"Activation is
+  deactivated"}`, both function-shaped 404s, the 400 and 500 arms, and the platform
+  `{"code":"NOT_FOUND"}` shape. Those exact bytes are frozen as a regression test.
+- Built binary re-verified: SPKI SHA-256 `9f603a7b…f02700`, no private key material,
+  production ref present, retired ref absent.
+
+**Not proven:** a full GUI end-to-end. Smart App Control blocks freshly built unsigned
+binaries on this host, and this machine holds only the unlicensed placeholder, so there
+is no live licence to exercise.
+
+**Source code changed:** Yes (client only) · **Database changed:** No · **Backend changed:** No
+
+---
+
 ## 2026-09-05 — License Revocation: admin-revoke-license
 
 **Session type:** Licensing backend + License Admin frontend. No QMS Desktop client

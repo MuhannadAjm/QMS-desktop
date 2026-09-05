@@ -1,4 +1,5 @@
 pub mod hardware;
+pub mod online;
 pub mod rsa_public_key;
 pub mod storage;
 pub mod token;
@@ -15,7 +16,10 @@ pub enum LicenseState {
     Expired,
     Invalid,
     HardwareMismatch,
-    /// Placeholder — actual online revoke check is implemented in Phase 9B.
+    /// The licensing server authoritatively refused this installation, or the
+    /// local token itself declares `status: "revoked"`. Reached only through an
+    /// online validation that actually received a denial — never through a
+    /// connectivity failure. See `license::online`.
     Revoked,
     /// Development bypass. NOT valid in production builds.
     DevBypass,

@@ -687,10 +687,35 @@ fn perform_restore(
         }
     }
     if !preserve_license {
-        let backup_license = source_dir.join("license.json");
-        if backup_license.is_file() {
-            if let Err(e) = std::fs::copy(&backup_license, &paths.license) {
-                warnings.push(format!("licence could not be restored ({})", e));
+        // A quarantined installation is never re-licensed by a restore.
+        //
+        // Backups contain license.json, so without this an ordinary "restore my
+        // records" — a supported, one-click operation — would copy a
+        // pre-revocation token back over the lockout and silently return a
+        // machine the vendor has refused to full working order. That is not
+        // tampering the customer has to intend; it is the documented recovery
+        // path quietly undoing a revocation.
+        //
+        // The vendor's decision outranks a local backup. Legitimate recovery is
+        // still available: re-activate with a valid key, which is exactly what
+        // the licence screen offers.
+        let quarantined = matches!(
+            crate::license::storage::read_license_token(),
+            Ok(crate::license::storage::LicenseFileState::Quarantined(_))
+        );
+
+        if quarantined {
+            warnings.push(
+                "the licence was not restored: this installation was locked out by the license \
+                 server, and a backup cannot reinstate it. Activate again with a valid license key."
+                    .to_string(),
+            );
+        } else {
+            let backup_license = source_dir.join("license.json");
+            if backup_license.is_file() {
+                if let Err(e) = std::fs::copy(&backup_license, &paths.license) {
+                    warnings.push(format!("licence could not be restored ({})", e));
+                }
             }
         }
     }

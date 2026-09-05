@@ -112,6 +112,7 @@ src-tauri/EULA.rtf
 | `C:\Program Files\QMS Desktop\` | Written | **Removed** | Updated |
 | `%APPDATA%\QMSDesktop\qms.db` | Never touched | **Preserved** | **Preserved** |
 | `%APPDATA%\QMSDesktop\license.json` | Never touched | **Preserved** | **Preserved** |
+| `%APPDATA%\QMSDesktop\license.revoked.json` | Never touched | **Preserved** | **Preserved** |
 | `%APPDATA%\QMSDesktop\uploads\` | Never touched | **Preserved** | **Preserved** |
 | `%APPDATA%\QMSDesktop\backups\` | Never touched | **Preserved** | **Preserved** |
 | `%APPDATA%\QMSDesktop\settings.json` | Never touched | **Preserved** | **Preserved** |
@@ -242,6 +243,19 @@ The migration runner will recreate it on next app start.
 ---
 
 ## License Operations (Phase 9A)
+
+### If the licence screen says the licence was revoked
+
+`license.json` has been replaced by a lockout record — a small JSON object whose
+first field is `"qms_license_quarantined": true`, together with the reason the
+licensing server gave. The original token is preserved alongside it as
+`license.revoked.json` so support can see exactly what was revoked.
+
+This is written only when the server returns an authoritative `403` refusal. It
+is never written for an offline machine, a timeout, or a backend outage — see
+`docs/LICENSING_BACKEND.md` §7. Recovery is to activate again with a valid key,
+which writes a fresh token over the record. Restoring a backup will **not** clear
+it: the restore deliberately skips the licence for a quarantined installation.
 
 ### Inspect current license.json
 

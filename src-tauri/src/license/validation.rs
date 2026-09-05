@@ -188,7 +188,8 @@ fn build_dev_signature_message(token: &LicenseToken) -> String {
 }
 
 /// Today's date as "YYYY-MM-DD" without chrono (same pattern as backup.rs).
-fn current_date_string() -> String {
+/// Local calendar date, YYYY-MM-DD. Also used to stamp quarantine records.
+pub(crate) fn current_date_string() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)

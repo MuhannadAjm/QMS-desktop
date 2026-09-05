@@ -372,9 +372,13 @@ export default function LicenseDetail() {
                 </li>
                 <li>The licensing server will reject validation requests for this license.</li>
                 <li className="font-semibold">
-                  It does NOT switch off a machine that is already activated. QMS Desktop 1.0.0
-                  does not re-validate on its own, so an existing installation keeps working from
-                  its stored license file. Revocation is not a remote kill switch.
+                  An activated machine is locked out at its next launch that reaches the
+                  licensing server. It must then be activated again with a valid key.
+                </li>
+                <li>
+                  A machine that stays completely offline keeps working from its stored license
+                  file until it reconnects. Revocation is not an instant remote kill switch for a
+                  computer that is never online.
                 </li>
                 <li>License, activation and event history are preserved — nothing is deleted.</li>
               </ul>

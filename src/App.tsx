@@ -16,6 +16,47 @@ import SupportDialog from './components/dialogs/SupportDialog';
 import TellAFriendDialog from './components/dialogs/TellAFriendDialog';
 import CheckForUpdatesDialog from './components/dialogs/CheckForUpdatesDialog';
 
+/**
+ * Best-effort online licence validation.
+ *
+ * This is the only point at which a licence the vendor has revoked can reach an
+ * installed machine, so it runs on every launch rather than waiting for someone
+ * to press a button on the License page.
+ *
+ * It is deliberately NOT awaited by the startup chain. QMS Desktop is an
+ * offline-capable product: a slow, absent or broken connection must cost the
+ * customer nothing, and startup must never block on the network.
+ *
+ * All the judgement lives in Rust (`license::online`). A technical failure —
+ * offline, timeout, 5xx, an unreadable body — comes back as the unchanged local
+ * verdict, so nothing happens here. An authoritative denial comes back as a
+ * non-valid state, and only then is the session torn down.
+ *
+ * A thrown error is NOT a denial. `validate_license_online` returns Err only for
+ * conditions that are not a licensing decision at all (an unreadable licence
+ * file, a token with no activation id), and treating those as revocation would
+ * lock people out for the wrong reason.
+ */
+let onlineLicenceCheckStarted = false;
+
+async function runOnlineLicenceCheck() {
+  // Once per process. React 18 StrictMode double-invokes effects in
+  // development, and a second call would log a duplicate VALIDATED event
+  // server-side for no benefit.
+  if (onlineLicenceCheckStarted) return;
+  onlineLicenceCheckStarted = true;
+
+  try {
+    const result = await licenseService.validateLicenseOnline();
+    useLicenseStore.getState().setLicenseStatus(result.state, result.state_label, result.is_valid);
+    if (!result.is_valid) {
+      useAuthStore.getState().setLicenseInvalid();
+    }
+  } catch {
+    // Not a licensing decision — leave the local licence exactly as it was.
+  }
+}
+
 // Handles native menu bar events emitted from Rust via menu-action event.
 // Must be rendered inside HashRouter so useNavigate is available.
 function MenuListener() {
@@ -206,9 +247,20 @@ export default function App() {
         return;
       }
 
+      // The local token is valid and the app is cleared to start. Now ask the
+      // licensing server whether it still agrees — without waiting for the
+      // answer, so an offline machine proceeds at full speed.
+      void runOnlineLicenceCheck();
+
       try {
         const exists = await checkFirstAdminExists();
-        if (!cancelled) setBootstrapResult(!exists);
+        // The online check above is not awaited, so an authoritative denial can
+        // land during this database round-trip. setBootstrapResult would write
+        // 'ready' straight over it and re-open the app, so re-read the state
+        // rather than trusting the value captured before the await.
+        if (!cancelled && useAuthStore.getState().bootstrapState !== 'license-invalid') {
+          setBootstrapResult(!exists);
+        }
       } catch (e) {
         fail(
           `QMS Desktop could not open its database.\n\n${String(e)}\n\n` +
